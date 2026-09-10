@@ -14,6 +14,7 @@
     </iframe>
 
     <form method="post" action="send.php">
+        <input type="hidden" name="room_id" value="1">
         <div>
             <label for="author">Name: </label>
             <input type="text" name="author" id="author" required />
