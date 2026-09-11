@@ -51,40 +51,44 @@ if ($recipient !== null) {
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="styles.css">
     <title>Classic PHP Chat</title>
 </head>
-<body>
-    <h1>Room: <?= htmlspecialchars($roomTitle, ENT_QUOTES, 'UTF-8') ?></h1>
-    <div>Room ID: <?= (int)$roomId ?></div>
-    <div>Signed in as: <?= htmlspecialchars($nickname, ENT_QUOTES, 'UTF-8') ?></div>
-    <iframe src="messages.php"
-            title="New messages"
-            width="800"
-            height="600">
-    </iframe>
 
-    <form method="post" action="send.php">
-        <?php if ($recipient !== null): ?>
-            <div>
-                To: <strong> <?= htmlspecialchars($recipient, ENT_QUOTES, 'UTF-8') ?> </strong>
-                <a href="/chat.php">Clear</a>
-            </div>
-        <?php endif; ?>
+<body class="chat-page">
+    <div class="chat-container">
+        <h1>Room: <?= htmlspecialchars($roomTitle, ENT_QUOTES, 'UTF-8') ?></h1>
+        <!-- <div>Room ID: 
+            <?= (int)$roomId ?>
+        </div> -->
+        <div>Signed in as: <?= htmlspecialchars($nickname, ENT_QUOTES, 'UTF-8') ?></div>
+        <iframe class="messages-frame" src="messages.php" title="Chat messages"></iframe>
+        <div class="chat-footer">
+            <form class="message-form" method="post" action="send.php">
+                <?php if ($recipient !== null): ?>
+                    <div>
+                        To: <strong> <?= htmlspecialchars($recipient, ENT_QUOTES, 'UTF-8') ?> </strong>
+                        <a href="/chat.php">Clear</a>
+                    </div>
+                <?php endif; ?>
 
-        <input type="hidden" name="recipient" value="<?= htmlspecialchars($recipient ?? '', ENT_QUOTES, 'UTF-8') ?>"
->
-        <div>
-            <label for="message">Message: </label>
-            <textarea rows="5" cols="80" name="message" id="message" required></textarea>
+                <input type="hidden" name="recipient" value="<?= htmlspecialchars($recipient ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                <div>
+                    <label for="message">Message: </label>
+                    <textarea rows="5" cols="80" name="message" id="message" required></textarea>
+                </div>
+                <input type="submit" value="Send">
+            </form>
+
+            <form method="post" action="exit.php">
+                <button type="submit">Exit</button>
+            </form>
         </div>
-        <input type="submit" value="Send">
-    </form>
-
-    <form method="post" action="exit.php">
-        <button type="submit">Exit</button>
-    </form>
+    </div>
 </body>
+
 </html>

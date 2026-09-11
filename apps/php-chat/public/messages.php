@@ -58,59 +58,75 @@ $messages = array_reverse($messages);
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="5">
+    <link rel="stylesheet" href="styles.css">
     <title>Chat Messages</title>
 </head>
+
 <body>
-    <div>
-        <span>Refreshed at: </span>
-        <?= date('H:i:s') ?>
+    <div class="messages-layout">
+        <div class="messages-panel">
+            <div>Refreshed at: <?= date('H:i:s') ?></div>
+            <h2>Messages: </h2>
+
+            <?php if (count($messages) > 0): ?>
+                <?php foreach ($messages as $message): ?>
+                    <?php
+                    $authorUrl = '/chat.php?' . http_build_query(['recipient' => $message['author'],]);
+
+                    $messageClass = '';
+
+                    if ($message['recipient'] !== null && strcasecmp($message['recipient'], $nickname) === 0) {
+                        $messageClass = 'message-to-me';
+                    } elseif (strcasecmp($message['author'], $nickname) === 0) {
+                        $messageClass = 'message-own';
+                    }
+
+                    ?>
+
+                    <div class="message <?= $messageClass ?>">
+                        <span style="color: grey">
+                            <!-- // Escape persisted values to prevent stored XSS - stored Javascript malcode, for example: <script>alert('Hacked')</script> -->
+                            <?= htmlspecialchars($message['created_at'], ENT_QUOTES, 'UTF-8') ?>:
+                        </span>
+                        <span>
+                            <a href="<?= htmlspecialchars($authorUrl, ENT_QUOTES, 'UTF-8') ?>" target="_parent">
+                                <?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?>
+                            </a>
+
+                            <?php if ($message['recipient'] !== null): ?>
+                                @ <?= htmlspecialchars($message['recipient'], ENT_QUOTES, 'UTF-8') ?>:
+                            <?php endif; ?>
+                        </span>
+                        <span>
+                            <?= htmlspecialchars($message['message_text'], ENT_QUOTES, 'UTF-8') ?>
+                        </span>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                No messages yet.
+            <?php endif; ?>
+        </div>
+
+        <div class="visitors-panel">
+            <h2>Online Visitors: </h2>
+            <ul>
+                <?php foreach ($visitors as $visitor): ?>
+                    <li>
+                        <?php $recipientUrl = '/chat.php?' . http_build_query(['recipient' => $visitor]); ?>
+
+                        <a href="<?= htmlspecialchars($recipientUrl, ENT_QUOTES, 'UTF-8') ?>" target="_parent">
+                            <?= htmlspecialchars($visitor, ENT_QUOTES, 'UTF-8') ?>
+                        </a>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
     </div>
-    <h2>Messages: </h2>
-
-    <?php if (count($messages) > 0): ?>
-        <?php foreach ($messages as $message): ?>
-            <?php
-                $authorUrl = '/chat.php?' . http_build_query(['recipient' => $message['author'], ]);
-            ?>
-
-            <div>
-                <span style="color: grey">
-                    <!-- // Escape persisted values to prevent stored XSS - stored Javascript malcode, for example: <script>alert('Hacked')</script> -->
-                    <?= htmlspecialchars($message['created_at'], ENT_QUOTES, 'UTF-8') ?>:
-                </span>
-                <span>
-                    <a href="<?= htmlspecialchars($authorUrl, ENT_QUOTES, 'UTF-8') ?>" target="_parent">
-                        <?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?>
-                    </a>
-                    
-                    <?php if ($message['recipient'] !== null): ?>
-                        → <?= htmlspecialchars($message['recipient'], ENT_QUOTES, 'UTF-8') ?>:
-                    <?php endif; ?>
-                </span>
-                <span>
-                    <?= htmlspecialchars($message['message_text'], ENT_QUOTES, 'UTF-8') ?>
-                </span>
-            </div>
-        <?php endforeach; ?>
-    <?php else: ?>
-        No messages yet.
-    <?php endif; ?>
-    
-    <h2>Online Visitors: </h2>
-    <ul>
-        <?php foreach ($visitors as $visitor): ?>
-        <li>
-            <?php $recipientUrl = '/chat.php?' . http_build_query(['recipient' => $visitor]); ?>
-
-            <a  href="<?= htmlspecialchars($recipientUrl, ENT_QUOTES, 'UTF-8') ?>" target="_parent">
-                <?= htmlspecialchars($visitor, ENT_QUOTES, 'UTF-8') ?>
-            </a>
-        </li>
-        <?php endforeach; ?>
-    </ul>
 </body>
+
 </html>
