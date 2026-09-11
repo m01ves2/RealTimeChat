@@ -19,6 +19,19 @@ if ($author === null || $roomId === null) {
     exit;
 }
 
+$recipient = $_POST['recipient'] ?? null;  // 'null' if no key 'recipient' in $_POST
+if ($recipient !== null && !is_string($recipient) ){
+    header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
+    echo "Recipient must be a string.";
+    exit;
+}
+if ($recipient !== null) {
+    $recipient = trim($recipient);
+
+    if ($recipient === '') {
+        $recipient = null;
+    }
+}
 
 $messageText = trim($_POST['message'] ?? '');
 if ($messageText === '') {
@@ -31,8 +44,9 @@ if ($messageText === '') {
 
 $pdo = require __DIR__ . '/../src/database.php';
 // Bind user input as parameters instead of interpolating it into SQL.
-$statement = $pdo->prepare('INSERT INTO messages(author, message_text, room_id) VALUES (:author, :message_text, :room_id);');
-$statement->execute(['author' => $author, 'message_text' => $messageText, 'room_id' => $roomId]);
+$statement = $pdo->prepare('    INSERT INTO messages(author, recipient, message_text, room_id) 
+                                VALUES (:author, :recipient, :message_text, :room_id);');
+$statement->execute(['author' => $author, 'message_text' => $messageText, 'room_id' => $roomId, 'recipient' => $recipient]);
 
 // Without the redirect, the browser would remain on the response returned by send.php.
 // Apply Post/Redirect/Get so refreshing the page does not submit the message again.

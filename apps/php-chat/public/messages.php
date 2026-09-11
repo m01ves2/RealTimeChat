@@ -53,6 +53,7 @@ $statement->execute(['room_id' => $roomId]);
 $messages = $statement->fetchAll(PDO::FETCH_ASSOC);
 // The query selects the newest 10 rows efficiently; reverse them for chronological display.
 $messages = array_reverse($messages);
+
 ?>
 
 <!DOCTYPE html>
@@ -72,16 +73,22 @@ $messages = array_reverse($messages);
 
     <?php if (count($messages) > 0): ?>
         <?php foreach ($messages as $message): ?>
+            <?php
+                $authorUrl = '/chat.php?' . http_build_query(['recipient' => $message['author'], ]);
+            ?>
+
             <div>
                 <span style="color: grey">
                     <!-- // Escape persisted values to prevent stored XSS - stored Javascript malcode, for example: <script>alert('Hacked')</script> -->
                     <?= htmlspecialchars($message['created_at'], ENT_QUOTES, 'UTF-8') ?>:
                 </span>
                 <span>
+                    <a href="<?= htmlspecialchars($authorUrl, ENT_QUOTES, 'UTF-8') ?>" target="_parent">
+                        <?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?>
+                    </a>
+                    
                     <?php if ($message['recipient'] !== null): ?>
-                        <?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?> → <?= htmlspecialchars($message['recipient'], ENT_QUOTES, 'UTF-8') ?>:
-                    <?php else: ?>
-                        <?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?>:
+                        → <?= htmlspecialchars($message['recipient'], ENT_QUOTES, 'UTF-8') ?>:
                     <?php endif; ?>
                 </span>
                 <span>
@@ -97,7 +104,11 @@ $messages = array_reverse($messages);
     <ul>
         <?php foreach ($visitors as $visitor): ?>
         <li>
-            <?= htmlspecialchars($visitor, ENT_QUOTES, 'UTF-8') ?>:
+            <?php $recipientUrl = '/chat.php?' . http_build_query(['recipient' => $visitor]); ?>
+
+            <a  href="<?= htmlspecialchars($recipientUrl, ENT_QUOTES, 'UTF-8') ?>" target="_parent">
+                <?= htmlspecialchars($visitor, ENT_QUOTES, 'UTF-8') ?>
+            </a>
         </li>
         <?php endforeach; ?>
     </ul>
