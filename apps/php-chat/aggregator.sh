@@ -1,6 +1,6 @@
 #!/bin/bash
 
-dirs=("src")
+dirs=(".")
 output="result.txt"
 
 # очищаем файл
@@ -13,7 +13,7 @@ export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
 for dir in "${dirs[@]}"; do
-    find "$dir" -type f \( -name "*.cs" -o -name "*.razor" -o -name "*.css" \) -not -path "*/bin/*" -not -path "*/obj/*" -not -path "*/lib/*" -not -path "*/bootstrap/*" | sort | while read -r file; do
+    find "$dir" -type f \( -name "*.cs" -o -name "*.razor" -o -name "*.css" -name "*.php" \) -not -path "*/bin/*" -not -path "*/obj/*" -not -path "*/lib/*" -not -path "*/bootstrap/*" | sort | while read -r file; do
 
         relative_path=$(realpath --relative-to="$current_dir" "$file")
 

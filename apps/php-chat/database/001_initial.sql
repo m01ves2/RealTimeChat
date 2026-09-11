@@ -1,0 +1,17 @@
+CREATE TABLE rooms (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title VARCHAR(100) UNIQUE NOT NULL
+);
+
+CREATE TABLE messages (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    author VARCHAR(30) NOT NULL,
+    message_text VARCHAR(500) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    room_id integer NOT NULL REFERENCES rooms (id) ON DELETE CASCADE
+);
+
+INSERT INTO rooms(title) VALUES ('General');
+
+INSERT INTO messages(author, message_text, room_id) VALUES ('Ivan', ' Hello from PostgreSQL!', 1);
+SELECT * FROM messages ORDER BY created_at;

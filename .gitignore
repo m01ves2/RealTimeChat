@@ -290,3 +290,4 @@ __pycache__/
 result.txt
 AssetsRaw/
 docs/sources
+/apps/php-chat/config/database.local.php
