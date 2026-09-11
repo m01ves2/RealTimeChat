@@ -1,4 +1,5 @@
 <?php
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     header('Allow: POST');
@@ -6,19 +7,24 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 
+session_start();
+$author = $_SESSION['nickname'] ?? null;
+$roomId = $_SESSION['room_id'] ?? null;
+session_write_close(); // free blocked session
 
-$author = trim($_POST['author'] ?? '');
+if ($author === null || $roomId === null) {
+    // Set the HTTP status line manually to demonstrate classic PHP response handling.
+    header($_SERVER['SERVER_PROTOCOL'] . ' 403 Forbidden');
+    echo "Join a room before sending messages.";
+    exit;
+}
+
+
 $messageText = trim($_POST['message'] ?? '');
-$roomId = 1;
-
-if ($author === '' || $messageText === '') {
+if ($messageText === '') {
     // Set the HTTP status line manually to demonstrate classic PHP response handling.
     header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
-    echo "Author and message are required.";
-
-    //modern PHP8.x response handling
-    // http_response_code(400);
-    // echo 'Author and message are required.';
+    echo "Message is required.";
 
     exit;
 }
@@ -29,6 +35,7 @@ $statement = $pdo->prepare('INSERT INTO messages(author, message_text, room_id) 
 $statement->execute(['author' => $author, 'message_text' => $messageText, 'room_id' => $roomId]);
 
 // Without the redirect, the browser would remain on the response returned by send.php.
-header('Location: /', true, 303); // Apply Post/Redirect/Get so refreshing the page does not submit the message again.
+// Apply Post/Redirect/Get so refreshing the page does not submit the message again.
+header('Location: /chat.php', true, 303);
 
 exit; // header() does not stop script execution, so terminate it explicitly.
