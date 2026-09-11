@@ -5,16 +5,29 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-
-
-$nickname = trim($_POST['nickname'] ?? '');
-$roomId = filter_input(INPUT_POST, 'room_id', FILTER_VALIDATE_INT); //like int.TryParse(value, out int roomId) in C#
-
-if ($nickname === '' || $roomId === null || $roomId === false || $roomId < 1) {
-    // Set the HTTP status line manually to demonstrate classic PHP response handling.
+$nickname = $_POST['nickname'] ?? null;
+if (!is_string($nickname)) {
     header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
-    echo "Nickname and room are required.";
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo 'Nickname must be a string.';
+    exit;
+}
 
+$nickname = trim($nickname);
+if ($nickname === '' || mb_strlen($nickname, 'UTF-8') > 30) {
+    header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo 'Nickname must contain between 1 and 30 characters.';
+    exit;
+}
+
+
+
+$roomId = filter_input(INPUT_POST, 'room_id', FILTER_VALIDATE_INT); //like int.TryParse(value, out int roomId) in C#
+if ($roomId === null || $roomId === false || $roomId < 1) {
+    header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo 'A valid room is required.';
     exit;
 }
 
@@ -31,6 +44,7 @@ $roomIdFound = $statement->fetchColumn();
 
 if ($roomIdFound === false) {
     header($_SERVER['SERVER_PROTOCOL'] . ' 404 Not Found');
+    header('Content-Type: text/plain; charset=UTF-8');
     echo "404 Room not found.";
     exit;
 }
@@ -42,8 +56,8 @@ $oldVisitorId = $_SESSION['visitor_id'] ?? null;
 try {
     // delete inactive visitors
     $pdo->beginTransaction();
-    $statement = $pdo->exec("    DELETE FROM room_visitors
-                                 WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '30 seconds' ");
+    $pdo->exec("    DELETE FROM room_visitors
+                    WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '30 seconds' ");
 
     // delete visitor from previous room
     if ($oldVisitorId !== null) {
@@ -67,6 +81,7 @@ try {
 
     if ($exception->getCode() === '23505'){
             header($_SERVER['SERVER_PROTOCOL'] . ' 409 Conflict');
+            header('Content-Type: text/plain; charset=UTF-8');
             echo "Nickname is already in use in this room.";
             exit;
     }
@@ -75,11 +90,11 @@ try {
     }
 }
 
-// Generate a new session ID (PHPSESSID) while preserving the existing session data.
-// Always create new session( and session ID) after authentification! somebody can get the old one!
+// Generate a new PHPSESSID after establishing the visitor's identity
+// to prevent session fixation.
 session_regenerate_id(true);
 
-// renew visitor's session data
+// Store the visitor's current identity and room in the session.
 $_SESSION['visitor_id'] = $newVisitorId;
 $_SESSION['nickname'] = $nickname;
 $_SESSION['room_id'] = $roomId;

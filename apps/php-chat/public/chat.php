@@ -33,9 +33,11 @@ if ($roomTitle === false) {
 
 
 $recipient = $_GET['recipient'] ?? null;
+
 if ($recipient !== null) {
     if (!is_string($recipient)) {
         header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
+        header('Content-Type: text/plain; charset=UTF-8');
         echo 'Invalid recipient.';
         exit;
     }
@@ -44,6 +46,11 @@ if ($recipient !== null) {
 
     if ($recipient === '') {
         $recipient = null;
+    } elseif (mb_strlen($recipient, 'UTF-8') > 30) {
+        header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Recipient must not exceed 30 characters.';
+        exit;
     }
 }
 
@@ -79,7 +86,7 @@ if ($recipient !== null) {
                 <input type="hidden" name="recipient" value="<?= htmlspecialchars($recipient ?? '', ENT_QUOTES, 'UTF-8') ?>">
                 <div>
                     <label for="message">Message: </label>
-                    <textarea rows="5" cols="80" name="message" id="message" required></textarea>
+                    <textarea rows="5" cols="80" name="message" id="message" maxlength="500" required></textarea>
                 </div>
                 <input type="submit" value="Send">
             </form>
