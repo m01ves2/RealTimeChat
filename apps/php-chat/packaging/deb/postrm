@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+
+ACTION="${1:-}"
+
+case "$ACTION" in
+    remove|purge)
+        rm -f /etc/nginx/sites-enabled/realtime-chat-php
+
+        if command -v nginx >/dev/null 2>&1 && nginx -t; then
+            invoke-rc.d nginx reload || true
+        fi
+        ;;
+esac
+
+if [ "$ACTION" = "purge" ]; then
+    rm -f /etc/realtime-chat-php/database.local.php
+    rmdir /etc/realtime-chat-php 2>/dev/null || true
+fi
+
+exit 0

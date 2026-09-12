@@ -1,0 +1,9 @@
+Package: realtime-chat-php
+Version: 1.0.0
+Section: web
+Priority: optional
+Architecture: all
+Maintainer: Eugeny Vlasov <eugeny.vlasov@gmail.com>
+Depends: nginx, php-fpm, php-cli, php-pgsql, php-mbstring, postgresql, openssl
+Description: Classic server-rendered PHP chat
+ A small educational chat using PHP sessions, PostgreSQL and iframe refresh.
