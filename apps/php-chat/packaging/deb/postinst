@@ -1,0 +1,142 @@
+#!/bin/sh
+
+set -eu
+
+if [ "${1:-}" != "configure" ]; then
+    exit 0
+fi
+
+APP_DIR="/usr/share/realtime-chat-php"
+
+CONFIG_DIR="/etc/realtime-chat-php"
+CONFIG_FILE="$CONFIG_DIR/database.local.php"
+
+DB_NAME="realtime_chat_php"
+DB_USER="realtime_chat_php_app"
+
+NGINX_SITE="/etc/nginx/sites-available/realtime-chat-php"
+NGINX_LINK="/etc/nginx/sites-enabled/realtime-chat-php"
+
+# Create the application configuration directory.
+install -d \
+    -m 0750 \
+    -o root \
+    -g www-data \
+    "$CONFIG_DIR"
+
+# Generate database credentials only during the first installation.
+if [ ! -f "$CONFIG_FILE" ]; then
+    DB_PASSWORD="$(openssl rand -hex 24)"
+
+    umask 027
+
+    cat > "$CONFIG_FILE" <<EOF
+<?php
+
+return [
+    'dsn' => 'pgsql:host=localhost;port=5432;dbname=$DB_NAME',
+    'username' => '$DB_USER',
+    'password' => '$DB_PASSWORD',
+];
+EOF
+
+    chown root:www-data "$CONFIG_FILE"
+    chmod 0640 "$CONFIG_FILE"
+else
+    DB_PASSWORD="$(php -r '
+        $config = require $argv[1];
+        echo $config["password"];
+    ' "$CONFIG_FILE")"
+fi
+
+# Create the PostgreSQL role when it does not exist.
+ROLE_EXISTS="$(
+    runuser -u postgres -- \
+        psql \
+            --dbname=postgres \
+            --tuples-only \
+            --no-align \
+            --command="SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER';"
+)"
+
+if [ "$ROLE_EXISTS" != "1" ]; then
+    runuser -u postgres -- createuser --login "$DB_USER"
+fi
+
+# Keep the PostgreSQL password synchronized with the PHP configuration.
+runuser -u postgres -- \
+    psql \
+        --dbname=postgres \
+        --set=ON_ERROR_STOP=1 \
+        --set=db_user="$DB_USER" \
+        --set=db_password="$DB_PASSWORD" <<'SQL'
+ALTER ROLE :"db_user" WITH LOGIN PASSWORD :'db_password';
+SQL
+
+# Create the application database when it does not exist.
+DATABASE_EXISTS="$(
+    runuser -u postgres -- \
+        psql \
+            --dbname=postgres \
+            --tuples-only \
+            --no-align \
+            --command="SELECT 1 FROM pg_database WHERE datname = '$DB_NAME';"
+)"
+
+if [ "$DATABASE_EXISTS" != "1" ]; then
+    runuser -u postgres -- \
+        createdb \
+            --owner="$DB_USER" \
+            "$DB_NAME"
+fi
+
+# Run psql as the application database user.
+app_psql()
+{
+    PGPASSWORD="$DB_PASSWORD" \
+        psql \
+            --host=localhost \
+            --username="$DB_USER" \
+            --dbname="$DB_NAME" \
+            "$@"
+}
+
+# Apply the initial schema once.
+ROOMS_EXIST="$(
+    app_psql \
+        --tuples-only \
+        --no-align \
+        --command="SELECT to_regclass('public.rooms') IS NOT NULL;"
+)"
+
+if [ "$ROOMS_EXIST" != "t" ]; then
+    app_psql \
+        --set=ON_ERROR_STOP=1 \
+        --single-transaction \
+        --file="$APP_DIR/database/001_initial.sql"
+fi
+
+# Apply the visitors and recipients migration once.
+VISITORS_EXIST="$(
+    app_psql \
+        --tuples-only \
+        --no-align \
+        --command="SELECT to_regclass('public.room_visitors') IS NOT NULL;"
+)"
+
+if [ "$VISITORS_EXIST" != "t" ]; then
+    app_psql \
+        --set=ON_ERROR_STOP=1 \
+        --single-transaction \
+        --file="$APP_DIR/database/002_add_visitors_and_recipients.sql"
+fi
+
+# Enable the nginx site.
+ln -sfn "$NGINX_SITE" "$NGINX_LINK"
+
+nginx -t
+invoke-rc.d nginx reload || invoke-rc.d nginx start
+
+echo "Classic PHP Chat is available on port 8080."
+
+exit 0
