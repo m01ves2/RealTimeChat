@@ -90,3 +90,37 @@ Open the lobby at:
 ```text
 http://localhost/
 ```
+
+## Debian Package
+
+Build the package:
+
+```bash
+apps/php-chat/packaging/build-deb.sh
+```
+
+Install it on Ubuntu or Debian:
+
+```bash
+sudo apt install ./apps/php-chat/dist/realtime-chat-php_1.0.0_all.deb
+```
+
+Open:
+
+```text
+http://SERVER_IP:8080/
+```
+
+Remove the application while preserving its configuration and database:
+
+```bash
+sudo apt remove realtime-chat-php
+```
+
+Remove the application and generated configuration:
+
+```bash
+sudo apt purge realtime-chat-php
+```
+
+The PostgreSQL database and role are preserved to prevent accidental data loss.
