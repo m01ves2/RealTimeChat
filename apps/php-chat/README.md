@@ -59,10 +59,20 @@ apps/php-chat/public
 Create a PostgreSQL database and application user, then apply the migrations:
 
 ```bash
-psql -h localhost -U realtime_chat_app -d realtime_chat \
+psql \
+    --set=ON_ERROR_STOP=1 \
+    --single-transaction \
+    -h localhost \
+    -U realtime_chat_app \
+    -d realtime_chat \
     -f apps/php-chat/database/001_initial.sql
 
-psql -h localhost -U realtime_chat_app -d realtime_chat \
+psql \
+    --set=ON_ERROR_STOP=1 \
+    --single-transaction \
+    -h localhost \
+    -U realtime_chat_app \
+    -d realtime_chat \
     -f apps/php-chat/database/002_add_visitors_and_recipients.sql
 ```
 
