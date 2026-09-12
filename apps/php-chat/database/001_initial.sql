@@ -12,6 +12,3 @@ CREATE TABLE messages (
 );
 
 INSERT INTO rooms(title) VALUES ('General');
-
-INSERT INTO messages(author, message_text, room_id) VALUES ('Ivan', ' Hello from PostgreSQL!', 1);
-SELECT * FROM messages ORDER BY created_at;
