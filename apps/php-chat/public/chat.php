@@ -73,7 +73,11 @@ if ($recipient !== null) {
             <?= (int)$roomId ?>
         </div> -->
         <div>Signed in as: <?= htmlspecialchars($nickname, ENT_QUOTES, 'UTF-8') ?></div>
-        <iframe class="messages-frame" src="messages.php" title="Chat messages"></iframe>
+
+        <div class="messages-container" id="messages">
+            Loading messages...
+        </div>
+
         <div class="chat-footer">
             <form class="message-form" method="post" action="send.php">
                 <?php if ($recipient !== null): ?>
@@ -96,6 +100,7 @@ if ($recipient !== null) {
             </form>
         </div>
     </div>
+    <script src="short-polling.js"></script>
 </body>
 
 </html>
