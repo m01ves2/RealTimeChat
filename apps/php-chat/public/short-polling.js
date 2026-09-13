@@ -1,5 +1,6 @@
 const pollingIntervalMs = 5000;
 let pollingTimerId = null;
+const messagesContainer = document.querySelector('#messages');
 
 async function loadMessages() {
 
@@ -19,7 +20,6 @@ async function loadMessages() {
     }
 
     const html = await response.text();
-    const messagesContainer = document.querySelector('#messages');
 
     messagesContainer.innerHTML = html;
 
@@ -69,4 +69,34 @@ messageForm.addEventListener('submit', async function (event) {
         console.error(error);
         alert('The message could not be sent.');
     }
+});
+
+
+//choose recipient without page reloading
+const recipientInput = document.querySelector('#recipient');
+const recipientName = document.querySelector('#recipient-name');
+const clearRecipientLink = document.querySelector('#clear-recipient');
+
+messagesContainer.addEventListener('click', function (event) {
+    const recipientLink = event.target.closest('[data-recipient]');
+
+    if (recipientLink === null) {
+        return;
+    }
+
+    event.preventDefault();
+
+    const recipient = recipientLink.dataset.recipient;
+
+    recipientInput.value = recipient;
+    recipientName.textContent = recipient;
+    clearRecipientLink.hidden = false;
+});
+
+clearRecipientLink.addEventListener('click', function (event) {
+    event.preventDefault();
+
+    recipientInput.value = '';
+    recipientName.textContent = 'Everyone';
+    clearRecipientLink.hidden = true;
 });

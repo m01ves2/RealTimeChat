@@ -47,7 +47,7 @@ $statement = $pdo->prepare('    SELECT id, author, recipient, message_text, crea
                                 FROM messages
                                 WHERE room_id = :room_id
                                 ORDER BY created_at DESC, id DESC
-                                LIMIT 10;');
+                                LIMIT 100;');
 $statement->execute(['room_id' => $roomId]);
 
 $messages = $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -83,7 +83,8 @@ header('Content-Type: text/html; charset=UTF-8');
                         <?= htmlspecialchars($message['created_at'], ENT_QUOTES, 'UTF-8') ?>:
                     </span>
                     <span>
-                        <a href="<?= htmlspecialchars($authorUrl, ENT_QUOTES, 'UTF-8') ?>" >
+                        <a href="<?= htmlspecialchars($authorUrl, ENT_QUOTES, 'UTF-8') ?>"
+                            data-recipient="<?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?>">
                             <?= htmlspecialchars($message['author'], ENT_QUOTES, 'UTF-8') ?>
                         </a>
 
@@ -108,7 +109,8 @@ header('Content-Type: text/html; charset=UTF-8');
                 <li>
                     <?php $recipientUrl = '/chat.php?' . http_build_query(['recipient' => $visitor]); ?>
 
-                    <a href="<?= htmlspecialchars($recipientUrl, ENT_QUOTES, 'UTF-8') ?>" >
+                    <a href="<?= htmlspecialchars($recipientUrl, ENT_QUOTES, 'UTF-8') ?>"
+                        data-recipient="<?= htmlspecialchars($visitor, ENT_QUOTES, 'UTF-8') ?>">
                         <?= htmlspecialchars($visitor, ENT_QUOTES, 'UTF-8') ?>
                     </a>
                 </li>

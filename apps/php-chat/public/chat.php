@@ -80,18 +80,37 @@ if ($recipient !== null) {
 
         <div class="chat-footer">
             <form class="message-form" method="post" action="send.php">
-                <?php if ($recipient !== null): ?>
-                    <div>
-                        To: <strong> <?= htmlspecialchars($recipient, ENT_QUOTES, 'UTF-8') ?> </strong>
-                        <a href="/chat.php">Clear</a>
-                    </div>
-                <?php endif; ?>
-
-                <input type="hidden" name="recipient" value="<?= htmlspecialchars($recipient ?? '', ENT_QUOTES, 'UTF-8') ?>">
                 <div>
-                    <label for="message">Message: </label>
-                    <textarea rows="5" cols="80" name="message" id="message" maxlength="500" required></textarea>
+                    To:
+                    <strong id="recipient-name">
+                        <?= htmlspecialchars($recipient ?? 'Everyone', ENT_QUOTES, 'UTF-8') ?>
+                    </strong>
+
+                    <a
+                        href="/chat.php"
+                        id="clear-recipient"
+                        <?= $recipient === null ? 'hidden' : '' ?>>
+                        Clear
+                    </a>
                 </div>
+
+                <input
+                    type="hidden"
+                    id="recipient"
+                    name="recipient"
+                    value="<?= htmlspecialchars($recipient ?? '', ENT_QUOTES, 'UTF-8') ?>">
+
+                <div>
+                    <label for="message">Message:</label>
+                    <textarea
+                        rows="5"
+                        cols="80"
+                        name="message"
+                        id="message"
+                        maxlength="500"
+                        required></textarea>
+                </div>
+
                 <input type="submit" value="Send">
             </form>
 
