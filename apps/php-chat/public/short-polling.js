@@ -1,6 +1,17 @@
 const pollingIntervalMs = 5000;
+let pollingTimerId = null;
 
 async function loadMessages() {
+
+    // abort ticking timer 
+    if (pollingTimerId !== null) {
+
+        // Cancel the pending poll when loadMessages() is called manually.
+        // If the timer has already fired, clearTimeout() safely does nothing.
+        clearTimeout(pollingTimerId);
+        pollingTimerId = null;
+    }
+
     const response = await fetch('/messages.php');
 
     if (!response.ok) {
@@ -13,7 +24,7 @@ async function loadMessages() {
     messagesContainer.innerHTML = html;
 
     // We use setTimeout(), not setInterval() to avoid request (messages.php) interseption.
-    setTimeout(loadMessages, pollingIntervalMs);
+    pollingTimerId = setTimeout(loadMessages, pollingIntervalMs);
 }
 
 loadMessages();
@@ -46,6 +57,14 @@ messageForm.addEventListener('submit', async function (event) {
         }
 
         messageForm.querySelector('#message').value = '';
+
+        //immediately loadMessages.  pollingTimerId != null here
+        try {
+            await loadMessages();
+        } catch (error) {
+            // if message was sent, but GET /messages.php was broken... 
+            console.error('The message was sent, but messages could not be refreshed.', error);
+        }
     } catch (error) {
         console.error(error);
         alert('The message could not be sent.');
