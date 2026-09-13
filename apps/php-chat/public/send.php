@@ -93,8 +93,17 @@ $statement = $pdo->prepare('    INSERT INTO messages(author, recipient, message_
                                 VALUES (:author, :recipient, :message_text, :room_id);');
 $statement->execute(['author' => $author, 'message_text' => $messageText, 'room_id' => $roomId, 'recipient' => $recipient]);
 
-// Without the redirect, the browser would remain on the response returned by send.php.
-// Apply Post/Redirect/Get so refreshing the page does not submit the message again.
-header('Location: /chat.php', true, 303);
 
-exit; // header() does not stop script execution, so terminate it explicitly.
+// JavaScript marks background form submissions with this custom HTTP header.
+// PHP exposes X-Requested-With as $_SERVER['HTTP_X_REQUESTED_WITH'].
+$isAjaxRequest = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest';
+
+if ($isAjaxRequest) {
+    // fetch() needs only a successful result; it does not need a new HTML page.
+    http_response_code(204);
+    exit;
+}
+
+// Without JavaScript, preserve the classic Post/Redirect/Get behavior.
+header('Location: /chat.php', true, 303);
+exit;
