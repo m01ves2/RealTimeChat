@@ -21,7 +21,24 @@ async function loadMessages() {
 
     const html = await response.text();
 
+    
+    // restore message scrolling after call loadMessages() and reloading messages panel
+    const previousMessagesPanel = messagesContainer.querySelector('.messages-panel');
+    let previousScrollTop = null;
+
+     // save previous scrolling
+    if (previousMessagesPanel !== null) {
+        previousScrollTop = previousMessagesPanel.scrollTop;
+    }
+
+    // fill message panel by new messages 
     messagesContainer.innerHTML = html;
+
+    // restore message scrolling from previous state
+    const currentMessagesPanel = messagesContainer.querySelector('.messages-panel');
+    if (currentMessagesPanel !== null && previousScrollTop !== null) {
+        currentMessagesPanel.scrollTop = previousScrollTop;
+    }
 
     // We use setTimeout(), not setInterval() to avoid request (messages.php) interseption.
     pollingTimerId = setTimeout(loadMessages, pollingIntervalMs);
