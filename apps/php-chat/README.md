@@ -1,6 +1,6 @@
-# Classic PHP Chat
+# PHP Chat — Short Polling
 
-A small server-rendered chat that demonstrates traditional HTTP request-response communication without JavaScript.
+A small PHP and JavaScript chat that demonstrates short polling over HTTP. It evolved from a classic server-rendered chat that used an automatically refreshed `iframe`.
 
 ## Features
 
@@ -8,11 +8,16 @@ A small server-rendered chat that demonstrates traditional HTTP request-response
 * nickname-based room entry;
 * PHP sessions;
 * PostgreSQL message history;
+* the latest 100 room messages;
 * optional message recipient;
 * online visitor list;
 * presence heartbeat every 5 seconds;
 * automatic offline detection after 30 seconds;
-* message refresh through an `iframe`;
+* HTML short polling through JavaScript `fetch()`;
+* background message submission without page reload;
+* recipient selection without page reload;
+* immediate message refresh after sending;
+* preserved message scroll position during polling;
 * prepared SQL statements and escaped HTML output.
 
 ## Request Flow
@@ -21,23 +26,42 @@ A small server-rendered chat that demonstrates traditional HTTP request-response
 index.php
     → join.php
     → chat.php
-        → messages.php
-        → send.php
-        → exit.php
+        → short-polling.js
+            → GET messages.php every 5 seconds
+            → POST send.php
+        → POST exit.php
 ```
 
 * `index.php` displays the lobby.
 * `join.php` validates the nickname and room, creates a visitor and starts a session.
-* `chat.php` displays the selected room and message form.
-* `messages.php` refreshes the message and visitor lists every 5 seconds.
-* `send.php` validates and stores a message.
-* `exit.php` removes the visitor and destroys the session.
+* `chat.php` displays the selected room, message container and message form.
+* `short-polling.js` periodically loads messages and visitors through `fetch()`.
+* `messages.php` updates the visitor heartbeat and returns an HTML fragment containing the latest messages and online visitors.
+* `send.php` validates and stores a message. Background requests receive `204 No Content`; regular HTML form submissions retain the classic redirect behavior.
+* `exit.php` removes the visitor, destroys the session and returns the user to the lobby.
 
-The browser stores only the `PHPSESSID` cookie. Nickname, room ID and visitor ID are stored in the server-side PHP session.
+The browser stores only the `PHPSESSID` cookie. The nickname, room ID and visitor ID are stored in the server-side PHP session.
+
+## Short Polling
+
+The browser sends a request to `messages.php` every 5 seconds:
+
+```text
+request
+    → immediate server response
+    → wait 5 seconds
+    → next request
+```
+
+The endpoint returns server-rendered HTML rather than JSON. JavaScript replaces the message and visitor markup without reloading `chat.php`.
+
+After a message is sent, JavaScript immediately refreshes the chat instead of waiting for the next scheduled polling request.
+
+The chat displays a rolling window containing the latest 100 messages. Older messages are not shown.
 
 ## Presence
 
-Every refresh of `messages.php` updates `room_visitors.last_seen`.
+Every request to `messages.php` updates `room_visitors.last_seen`.
 
 A visitor is considered online when the last heartbeat was received during the previous 30 seconds. Closing a browser tab cannot be detected immediately, so the visitor remains visible until the timeout expires.
 
