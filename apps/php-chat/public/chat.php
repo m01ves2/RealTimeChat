@@ -119,7 +119,7 @@ if ($recipient !== null) {
             </form>
         </div>
     </div>
-    <script src="short-polling.js"></script>
+    <script src="long-polling.js"></script>
 </body>
 
 </html>
