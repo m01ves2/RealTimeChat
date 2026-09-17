@@ -1,6 +1,6 @@
 #!/bin/bash
 
-dirs=(".")
+dirs=("src")
 output="result.txt"
 
 # очищаем файл
