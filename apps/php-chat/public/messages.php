@@ -15,8 +15,24 @@ if ($nickname === null || $roomId === null || $visitorId === null) {
     exit;
 }
 
-$pdo = require __DIR__ . '/../src/database.php';
 
+// The first request does not contain "after".
+// Subsequent long polling requests send the id of the last message
+// already known to the browser.
+
+// takes param from query string and tries to make int || null
+// equals: $afterMessageId = $_GET['after'] ?? null; + make integer validation:
+$afterMessageId = filter_input(INPUT_GET, 'after', FILTER_VALIDATE_INT); 
+
+if ($afterMessageId === false || ($afterMessageId !== null && $afterMessageId < 0)) {
+    header($_SERVER['SERVER_PROTOCOL'] . ' 400 Bad Request');
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo 'Invalid message id.';
+    exit;
+}
+    
+    
+$pdo = require __DIR__ . '/../src/database.php';
 // Refresh the visitor's online presence.
 $heartbeatStatement = $pdo->prepare('   UPDATE room_visitors
                                         SET last_seen = CURRENT_TIMESTAMP
@@ -32,6 +48,43 @@ if ($updatedVisitorId === false) {
     exit;
 }
 
+// The first request has no "after" parameter and returns immediately.
+//
+// Subsequent requests are long polling requests:
+// wait until a newer message appears or until the timeout expires.
+if ($afterMessageId !== null) {
+    $pollTimeoutSeconds = 20;
+    $pollIntervalMicroseconds = 500000; // 0.5 second
+    $startedAt = microtime(true);
+
+    $newMessageStatement = $pdo->prepare('  SELECT id
+                                            FROM messages
+                                            WHERE room_id = :room_id
+                                            AND id > :after_message_id
+                                            ORDER BY id
+                                            LIMIT 1; ');
+
+
+    while (true) {
+        $newMessageStatement->execute([
+            'room_id' => $roomId,
+            'after_message_id' => $afterMessageId,
+        ]);
+
+        $newMessageId = $newMessageStatement->fetchColumn();
+
+        if ($newMessageId !== false) {
+            break;
+        }
+
+        if (microtime(true) - $startedAt >= $pollTimeoutSeconds) {
+            break;
+        }
+
+        usleep($pollIntervalMicroseconds);
+    }
+}
+
 
 // Get all visitors of the room.
 $visitorsStatement = $pdo->prepare("    SELECT nickname
@@ -42,7 +95,7 @@ $visitorsStatement = $pdo->prepare("    SELECT nickname
 $visitorsStatement->execute(['room_id' => $roomId]);
 $visitors = $visitorsStatement->fetchAll(PDO::FETCH_COLUMN);
 
-// Get the latest 10 messages.
+// Get the latest 100 messages.
 $statement = $pdo->prepare('    SELECT id, author, recipient, message_text, created_at
                                 FROM messages
                                 WHERE room_id = :room_id
@@ -51,13 +104,23 @@ $statement = $pdo->prepare('    SELECT id, author, recipient, message_text, crea
 $statement->execute(['room_id' => $roomId]);
 
 $messages = $statement->fetchAll(PDO::FETCH_ASSOC);
-// The query selects the newest 10 rows efficiently; reverse them for chronological display.
+// The query selects the newest 100 rows efficiently; reverse them for chronological display.
 $messages = array_reverse($messages);
+
+// Tell JavaScript which message is currently the newest one.
+$lastMessageId = 0;
+
+if (count($messages) > 0) {
+    $lastMessage = $messages[count($messages) - 1];
+    $lastMessageId = (int)$lastMessage['id'];
+}
+
 
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 
-<div class="messages-layout">
+<div  class="messages-layout"
+    data-last-message-id="<?= $lastMessageId ?>">
     <div class="messages-panel">
         <div>Refreshed at: <?= date('H:i:s') ?></div>
         <h2>Messages: </h2>
