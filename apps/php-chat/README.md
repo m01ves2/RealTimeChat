@@ -1,6 +1,6 @@
-# PHP Chat — Short Polling
+# PHP Chat — Long Polling
 
-A small PHP and JavaScript chat that demonstrates short polling over HTTP. It evolved from a classic server-rendered chat that used an automatically refreshed `iframe`.
+A small PHP and JavaScript chat that demonstrates long polling over HTTP. It evolved from the short polling version of the chat.
 
 ## Features
 
@@ -11,13 +11,18 @@ A small PHP and JavaScript chat that demonstrates short polling over HTTP. It ev
 * the latest 100 room messages;
 * optional message recipient;
 * online visitor list;
-* presence heartbeat every 5 seconds;
-* automatic offline detection after 30 seconds;
-* HTML short polling through JavaScript `fetch()`;
+* presence heartbeat through long polling requests;
+* HTML long polling through JavaScript `fetch()`;
 * background message submission without page reload;
 * recipient selection without page reload;
-* immediate message refresh after sending;
-* preserved message scroll position during polling;
+* automatic refresh when a long polling request detects a new message;
+* preserved scroll position while reading message history;
+* automatic scrolling to the newest messages when the user is already near the bottom;
+* automatic offline detection after 30 seconds;
+* background message submission without page reload;
+* recipient selection without page reload;
+
+
 * prepared SQL statements and escaped HTML output.
 
 ## Request Flow
@@ -26,8 +31,8 @@ A small PHP and JavaScript chat that demonstrates short polling over HTTP. It ev
 index.php
     → join.php
     → chat.php
-        → short-polling.js
-            → GET messages.php every 5 seconds
+        → long-polling.js
+            → GET messages.php?after=<lastMessageId>
             → POST send.php
         → POST exit.php
 ```
@@ -35,35 +40,49 @@ index.php
 * `index.php` displays the lobby.
 * `join.php` validates the nickname and room, creates a visitor and starts a session.
 * `chat.php` displays the selected room, message container and message form.
-* `short-polling.js` periodically loads messages and visitors through `fetch()`.
-* `messages.php` updates the visitor heartbeat and returns an HTML fragment containing the latest messages and online visitors.
+* `long-polling.js` keeps one message request active at a time and immediately starts the next request after the previous one finishes.
+* `messages.php` updates the visitor heartbeat, waits for a new message or timeout, and returns an HTML fragment containing the latest messages and online visitors.
 * `send.php` validates and stores a message. Background requests receive `204 No Content`; regular HTML form submissions retain the classic redirect behavior.
 * `exit.php` removes the visitor, destroys the session and returns the user to the lobby.
 
 The browser stores only the `PHPSESSID` cookie. The nickname, room ID and visitor ID are stored in the server-side PHP session.
 
-## Short Polling
+## Long Polling
 
-The browser sends a request to `messages.php` every 5 seconds:
+The first request to `messages.php` returns immediately and loads the current chat state.
+
+JavaScript remembers the ID of the newest message and sends it with the next request:
 
 ```text
+GET /messages.php?after=123
+The server keeps this request open until either:
+    → a newer message appears; or
+    → the long polling timeout expires.
+
 request
-    → immediate server response
-    → wait 5 seconds
-    → next request
+    → server waits
+    → new message or timeout
+    → response
+    → next request starts immediately
 ```
 
-The endpoint returns server-rendered HTML rather than JSON. JavaScript replaces the message and visitor markup without reloading `chat.php`.
+The current implementation checks PostgreSQL every 500 ms while waiting and uses a 20-second timeout.
 
-After a message is sent, JavaScript immediately refreshes the chat instead of waiting for the next scheduled polling request.
+The endpoint still returns a full server-rendered HTML snapshot containing the latest 100 messages and the online visitor list. JavaScript replaces the previous snapshot rather than appending only the new messages.
 
-The chat displays a rolling window containing the latest 100 messages. Older messages are not shown.
+This approach intentionally keeps the implementation close to the previous short polling version.
 
 ## Presence
 
-Every request to `messages.php` updates `room_visitors.last_seen`.
+Each request to `messages.php` updates `room_visitors.last_seen` before entering the long polling wait.
 
-A visitor is considered online when the last heartbeat was received during the previous 30 seconds. Closing a browser tab cannot be detected immediately, so the visitor remains visible until the timeout expires.
+The long polling timeout is shorter than the 30-second presence timeout, so an active client refreshes its heartbeat before being considered offline.
+
+## Trade-offs
+
+Long polling provides near-immediate message delivery without sending a new HTTP request every few seconds.
+
+However, each connected client keeps a long-running HTTP request open. In this implementation, the PHP script periodically queries PostgreSQL while waiting for new messages. This is intentionally simple and educational rather than optimized for large-scale production use.
 
 ## Requirements
 
