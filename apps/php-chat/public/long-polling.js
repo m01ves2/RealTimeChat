@@ -1,19 +1,17 @@
-const pollingIntervalMs = 5000;
-let pollingTimerId = null;
+let lastMessageId = null;
 const messagesContainer = document.querySelector('#messages');
 
 async function loadMessages() {
 
-    // abort ticking timer 
-    if (pollingTimerId !== null) {
+    let url = '/messages.php';
 
-        // Cancel the pending poll when loadMessages() is called manually.
-        // If the timer has already fired, clearTimeout() safely does nothing.
-        clearTimeout(pollingTimerId);
-        pollingTimerId = null;
+      // The first request has no "after" parameter and returns immediately.
+    // Subsequent requests wait for messages newer than lastMessageId.
+    if (lastMessageId !== null) {
+        url += `?after=${lastMessageId}`;
     }
 
-    const response = await fetch('/messages.php');
+    const response = await fetch(url);
 
     if (!response.ok) {
         throw new Error(`HTTP error: ${response.status}`);
@@ -21,29 +19,55 @@ async function loadMessages() {
 
     const html = await response.text();
 
-    
+
+
+
     // restore message scrolling after call loadMessages() and reloading messages panel
     const previousMessagesPanel = messagesContainer.querySelector('.messages-panel');
     let previousScrollTop = null;
+    let wasAtBottom = true;
 
-     // save previous scrolling
+    // Save the current scrolling position.
     if (previousMessagesPanel !== null) {
         previousScrollTop = previousMessagesPanel.scrollTop;
+
+        const distanceFromBottom = 
+        previousMessagesPanel.scrollHeight // full size of content inside panel, including invisible part
+        - previousMessagesPanel.scrollTop  // distance from top of panel
+        - previousMessagesPanel.clientHeight; // height of visible part. e.g.: 2000 - 1200 - 300 = 500px - distance from bottom visible part to the end of all content
+
+    wasAtBottom = distanceFromBottom < 20;
     }
 
-    // fill message panel by new messages 
+    // Replace the messages and visitors panels with the new server response.
     messagesContainer.innerHTML = html;
+
+    // Read the id of the newest message returned by the server.
+    const messagesLayout = messagesContainer.querySelector('.messages-layout');
+
+    if (messagesLayout !== null) {
+        lastMessageId = Number(messagesLayout.dataset.lastMessageId);
+    }
 
     // restore message scrolling from previous state
     const currentMessagesPanel = messagesContainer.querySelector('.messages-panel');
-    if (currentMessagesPanel !== null && previousScrollTop !== null) {
-        currentMessagesPanel.scrollTop = previousScrollTop;
-    }
-
-    // We use setTimeout(), not setInterval() to avoid request (messages.php) interseption.
-    pollingTimerId = setTimeout(loadMessages, pollingIntervalMs);
+if (currentMessagesPanel !== null) {
+    if (wasAtBottom) {
+        currentMessagesPanel.scrollTop = currentMessagesPanel.scrollHeight;
+    } else 
+        if (previousScrollTop !== null) {
+            currentMessagesPanel.scrollTop = previousScrollTop;
+        }
 }
 
+
+
+    // Unlike short polling, there is no delay here.
+    // The next request starts immediately after the previous one finishes.
+    await loadMessages();
+}
+
+// Start the polling chain.
 loadMessages();
 
 // prevent page reloading for 'Submit' button
@@ -75,13 +99,10 @@ messageForm.addEventListener('submit', async function (event) {
 
         messageForm.querySelector('#message').value = '';
 
-        //immediately loadMessages.  pollingTimerId != null here
-        try {
-            await loadMessages();
-        } catch (error) {
-            // if message was sent, but GET /messages.php was broken... 
-            console.error('The message was sent, but messages could not be refreshed.', error);
-        }
+         // No manual loadMessages() call here.
+        //
+        // A long polling GET request is already waiting in messages.php.
+        // The newly inserted message will cause that request to finish.
     } catch (error) {
         console.error(error);
         alert('The message could not be sent.');

@@ -63,7 +63,7 @@ if ($recipient !== null) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="styles.css">
-    <title>Classic PHP Chat</title>
+    <title>Long Polling PHP Chat</title>
 </head>
 
 <body class="chat-page">
