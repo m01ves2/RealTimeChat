@@ -19,65 +19,60 @@ app.Map("/ws", async context =>
         return;
     }
 
-    using WebSocket webSocket =
-        await context.WebSockets.AcceptWebSocketAsync();
+    using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
 
-    byte[] buffer = new byte[4 * 1024];
+    const int BufferSize = 4 * 1024;
+    const int MaxMessageSize = 64 * 1024;
+    byte[] buffer = new byte[BufferSize];
 
     while (webSocket.State == WebSocketState.Open)
     {
-        WebSocketReceiveResult result =
-            await webSocket.ReceiveAsync(
-                new ArraySegment<byte>(buffer),
-                context.RequestAborted);
+        using MemoryStream messageStream = new();
 
-        if (result.MessageType == WebSocketMessageType.Close)
+        WebSocketReceiveResult result;
+
+        do
         {
-            await webSocket.CloseAsync(
-                result.CloseStatus
-                    ?? WebSocketCloseStatus.NormalClosure,
-                result.CloseStatusDescription,
-                context.RequestAborted);
+            result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), context.RequestAborted); //read from webSocket data with size <= BufferSize
 
-            break;
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                await webSocket.CloseAsync( result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                                            result.CloseStatusDescription,
+                                            context.RequestAborted);
+                return;
+            }
+
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                await webSocket.CloseAsync( WebSocketCloseStatus.InvalidMessageType,
+                                            "Only text messages are supported.",
+                                            context.RequestAborted);
+                return;
+            }
+
+            if (messageStream.Length + result.Count > MaxMessageSize)
+            {
+                await webSocket.CloseAsync( WebSocketCloseStatus.MessageTooBig,
+                                            $"Message size cannot exceed {MaxMessageSize} bytes.",
+                                            context.RequestAborted);
+                return;
+            }
+
+            messageStream.Write(buffer, 0, result.Count);
         }
+        while (!result.EndOfMessage);
 
-        if (result.MessageType != WebSocketMessageType.Text)
-        {
-            await webSocket.CloseAsync(
-                WebSocketCloseStatus.InvalidMessageType,
-                "Only text messages are supported.",
-                context.RequestAborted);
+        string message = Encoding.UTF8.GetString(messageStream.ToArray());
 
-            break;
-        }
+        string echoMessage = $"Server received: {message}";
 
-        if (!result.EndOfMessage)
-        {
-            await webSocket.CloseAsync(
-                WebSocketCloseStatus.PolicyViolation,
-                "Fragmented messages are not supported yet.",
-                context.RequestAborted);
+        byte[] echoBytes = Encoding.UTF8.GetBytes(echoMessage);
 
-            break;
-        }
-
-        string message = Encoding.UTF8.GetString(
-            buffer,
-            0,
-            result.Count);
-
-        string echoMessage =
-            $"Server received: {message}";
-
-        byte[] echoBytes =
-            Encoding.UTF8.GetBytes(echoMessage);
-
-        await webSocket.SendAsync(
-            new ArraySegment<byte>(echoBytes),
-            WebSocketMessageType.Text,
-            endOfMessage: true,
-            context.RequestAborted);
+        await webSocket.SendAsync(  new ArraySegment<byte>(echoBytes),
+                                    WebSocketMessageType.Text,
+                                    endOfMessage: true,
+                                    context.RequestAborted);
     }
 });
 
