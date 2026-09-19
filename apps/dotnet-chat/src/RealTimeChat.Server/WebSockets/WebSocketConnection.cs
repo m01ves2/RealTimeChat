@@ -6,6 +6,7 @@ namespace RealTimeChat.Server.WebSockets
 {
     internal sealed class WebSocketConnection
     {
+        public Guid Id { get; } = Guid.NewGuid();
         private readonly WebSocket _socket;
         private readonly Channel<string> _outgoingMessages = Channel.CreateUnbounded<string>();
 
@@ -13,12 +14,15 @@ namespace RealTimeChat.Server.WebSockets
         private const int MaxMessageSize = 64 * 1024;
         private readonly byte[] _buffer = new byte[BufferSize];
 
+        private readonly Func<string, CancellationToken, Task> _messageHandler;
+
         private WebSocketCloseStatus _closeStatus = WebSocketCloseStatus.NormalClosure;
         private string? _closeDescription;
 
-        public WebSocketConnection(WebSocket socket)
+        public WebSocketConnection(WebSocket socket, Func<string, CancellationToken, Task> messageHandler)
         {
             _socket = socket ?? throw new ArgumentNullException(nameof(socket));
+            _messageHandler = messageHandler ?? throw new ArgumentNullException(nameof(messageHandler));
         }
 
         public async Task RunAsync(CancellationToken cancellationToken)
@@ -87,7 +91,7 @@ namespace RealTimeChat.Server.WebSockets
                     while (!result.EndOfMessage);
                     string message = Encoding.UTF8.GetString(messageStream.ToArray());
 
-                    await _outgoingMessages.Writer.WriteAsync(message, cancellationToken);
+                    await _messageHandler(message, cancellationToken);
                 }
             }
             finally {
@@ -98,14 +102,19 @@ namespace RealTimeChat.Server.WebSockets
         private async Task SendLoopAsync(CancellationToken cancellationToken)
         {
             await foreach (string message in _outgoingMessages.Reader.ReadAllAsync(cancellationToken)) {
-                string echoMessage = $"Server received: {message}";
-                byte[] echoBytes = Encoding.UTF8.GetBytes(echoMessage);
+                
+                byte[] echoBytes = Encoding.UTF8.GetBytes(message);
 
                 await _socket.SendAsync(new ArraySegment<byte>(echoBytes),
                                             WebSocketMessageType.Text,
                                             endOfMessage: true,
                                             cancellationToken);
             }
+        }
+
+        public async Task EnqueueMessageAsync(string message, CancellationToken cancellationToken)
+        {
+            await _outgoingMessages.Writer.WriteAsync(message, cancellationToken);
         }
     }
 }
