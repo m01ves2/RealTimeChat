@@ -1,15 +1,20 @@
 ﻿using System.Net.WebSockets;
 using System.Text;
+using System.Threading.Channels;
 
 namespace RealTimeChat.Server.WebSockets
 {
     internal sealed class WebSocketConnection
     {
         private readonly WebSocket _socket;
+        private readonly Channel<string> _outgoingMessages = Channel.CreateUnbounded<string>();
 
         private const int BufferSize = 4 * 1024;
         private const int MaxMessageSize = 64 * 1024;
         private readonly byte[] _buffer = new byte[BufferSize];
+
+        private WebSocketCloseStatus _closeStatus = WebSocketCloseStatus.NormalClosure;
+        private string? _closeDescription;
 
         public WebSocketConnection(WebSocket socket)
         {
@@ -18,48 +23,82 @@ namespace RealTimeChat.Server.WebSockets
 
         public async Task RunAsync(CancellationToken cancellationToken)
         {
-            while (_socket.State == WebSocketState.Open)
-            {
-                using MemoryStream messageStream = new();
+            // Запускаем оба цикла параллельно.
+            // Когда один завершается, отменяем второй и ожидаем полную остановку.
+            // После этого завершаем WebSocket close handshake.
 
-                WebSocketReceiveResult result;
+            // Create a shared cancellation signal for both loops. Linked with cancellationToken. We can use connectionCts.Cancel()
+            using CancellationTokenSource connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-                do
-                {
-                    result = await _socket.ReceiveAsync(new ArraySegment<byte>(_buffer), cancellationToken); //read from webSocket data portion with size <= BufferSize
+            // Start receiving and sending concurrently.
+            Task receiveTask = ReceiveLoopAsync(connectionCts.Token);
+            Task sendTask = SendLoopAsync(connectionCts.Token);
 
-                    if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        await _socket.CloseAsync(result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
-                                                    result.CloseStatusDescription,
-                                                    cancellationToken);
-                        return;
+            // When either loop finishes, ask the other one to stop.
+            await Task.WhenAny(receiveTask, sendTask);
+            connectionCts.Cancel(); //send Cancel signal to another cicle (inside receiveTask or inside sendTask)
+
+            // Wait until both loops have actually stopped.
+            try {
+                await Task.WhenAll(receiveTask, sendTask);
+            }
+            catch (OperationCanceledException) when (connectionCts.IsCancellationRequested) {
+                // Expected when the other loop has finished.
+                // Coordinated cancellation is expected.
+            }
+
+            if ((_socket.State == WebSocketState.Open || _socket.State == WebSocketState.CloseReceived) &&
+                 !cancellationToken.IsCancellationRequested) {
+                await _socket.CloseAsync(_closeStatus, _closeDescription, cancellationToken);
+            }
+        }
+
+        private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
+        {
+            try {
+                while (_socket.State == WebSocketState.Open) {
+                    using MemoryStream messageStream = new();
+
+                    WebSocketReceiveResult result;
+
+                    do {
+                        result = await _socket.ReceiveAsync(new ArraySegment<byte>(_buffer), cancellationToken); //read from webSocket data portion with size <= BufferSize
+
+                        if (result.MessageType == WebSocketMessageType.Close) {
+                            _closeStatus = result.CloseStatus ?? WebSocketCloseStatus.NormalClosure;
+                            _closeDescription = result.CloseStatusDescription;
+                            return;
+                        }
+
+                        if (result.MessageType != WebSocketMessageType.Text) {
+                            _closeStatus = WebSocketCloseStatus.InvalidMessageType;
+                            _closeDescription = "Only text messages are supported.";
+                            return;
+                        }
+
+                        if (messageStream.Length + result.Count > MaxMessageSize) {
+                            _closeStatus = WebSocketCloseStatus.MessageTooBig;
+                            _closeDescription = $"Message size cannot exceed {MaxMessageSize} bytes.";
+                            return;
+                        }
+
+                        messageStream.Write(_buffer, 0, result.Count);
                     }
+                    while (!result.EndOfMessage);
+                    string message = Encoding.UTF8.GetString(messageStream.ToArray());
 
-                    if (result.MessageType != WebSocketMessageType.Text)
-                    {
-                        await _socket.CloseAsync(WebSocketCloseStatus.InvalidMessageType,
-                                                    "Only text messages are supported.",
-                                                    cancellationToken);
-                        return;
-                    }
-
-                    if (messageStream.Length + result.Count > MaxMessageSize)
-                    {
-                        await _socket.CloseAsync(WebSocketCloseStatus.MessageTooBig,
-                                                    $"Message size cannot exceed {MaxMessageSize} bytes.",
-                                                    cancellationToken);
-                        return;
-                    }
-
-                    messageStream.Write(_buffer, 0, result.Count);
+                    await _outgoingMessages.Writer.WriteAsync(message, cancellationToken);
                 }
-                while (!result.EndOfMessage);
+            }
+            finally {
+                _outgoingMessages.Writer.TryComplete();
+            }
+        }
 
-                string message = Encoding.UTF8.GetString(messageStream.ToArray());
-
+        private async Task SendLoopAsync(CancellationToken cancellationToken)
+        {
+            await foreach (string message in _outgoingMessages.Reader.ReadAllAsync(cancellationToken)) {
                 string echoMessage = $"Server received: {message}";
-
                 byte[] echoBytes = Encoding.UTF8.GetBytes(echoMessage);
 
                 await _socket.SendAsync(new ArraySegment<byte>(echoBytes),
@@ -68,7 +107,5 @@ namespace RealTimeChat.Server.WebSockets
                                             cancellationToken);
             }
         }
-
-
     }
 }
