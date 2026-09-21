@@ -2,58 +2,68 @@
 
 ## Actors
 
-- **Guest** - a user who has opened the application but has not joined a room.
-- **Participant** - a user who has joined a chat room.
+- **Guest** - a user who is not signed in.
+- **Authenticated User** — a user who has signed in to the application.
+- **Participant** - an authenticated user who has joined a chat room.
 
 
 ## UC-01 - View Lobby
 
-**Actor:** Guest
+**Actor:** Guest, Authenticated User
 
 **Main Flow:**
-
-1. The guest opens the application.
+1. The Actor opens the application.
 2. The system displays the list of available rooms.
 
 **Result:**
+The guest can register or log in.
+The authenticated user can select and enter a room.
 
-The guest can choose a room and enter a display name.
 
-
-## UC-02 - Join Room
+## UC-02 - Register
 
 **Actor:** Guest
 
 **Main Flow:**
-
-1. The guest selects a room.
-2. The guest enters a display name.
-3. The guest submits the form.
-4. The system validates the display name.
-5. The system verifies that the name is not currently used in the selected room.
-6. The system adds the user to the room as a participant.
-7. The room page is displayed.
+ 1. The Actor enters a username, a password and a password confirmation
+ 2. The system validates the username and password, creates an Identity account, and signs the user in.
 
 **Extensions:**
-
-- The display name does not pass validation. The system displays an error.
-- The display name is already in use in the selected room. The system asks the guest to choose another name.
-
-**Result:**
-
-The participant enters the selected room.
+ 1. the username is not available
+ 2. the username and the password are not valid
+ 3. the password and the password confirmation are different
 
 
-## UC-03 - View Room Conversation
+## UC-03 - Log In
+
+**Actor:** Guest 
+
+**Main Flow:**
+ 1. The Actor inputs a username and a password
+ 2. The Actor becomes Authenticated User (gets authentication cookie).
+
+ **Extensions:**
+ 1. The credentials are invalid. The system displays an error.
+
+
+## UC-04 - Join Room
+
+**Actor:** Authenticated User
+
+**Main Flow:**
+1. The Actor selects a room.
+2. The system adds the Actor to the room as a participant.
+3. The room page is displayed.
+
+
+## UC-05 - View Room Conversation
 
 **Actor:** Participant
 
 **Main Flow:**
-
-1. The participant enters a room.
-2. The system loads the recent message history.
-3. The system displays messages in chronological order.
-4. New messages appear without a page reload.
+1. The Actor enters a room.
+2. The system loads the recent message history. The history includes public messages and private messages sent or received by the Actor.
+3. New messages appear without a page reload.
 
 Each message includes:
 
@@ -62,48 +72,76 @@ Each message includes:
 - the message text.
 
 
-## UC-04 - Send Message
+## UC-06 - Send Room Message
 
 **Actor:** Participant
 
 **Main Flow:**
-
-1. Participant optionally selects another participant as the addressee.
-2. The selected name appears before the message.
-3. The message is delivered to everyone in the room.
-4. The addressee sees the message highlighted.
+1. The Actor enters the message text
+2. The message is delivered to everyone in the room
+3. The Actor sees their message highlighted.
 
 **Extensions:**
-
 - The message is empty or contains only whitespace. The system does not send it and displays a validation error.
 
 **Result:**
-
 The message is stored and displayed to the room participants.
 
 
-## UC-05 - View Online Participants
+## UC-07 — Send Private Message
 
 **Actor:** Participant
 
 **Main Flow:**
+1. The actor selects a participant as the message recipient.
+2. The selected receiver's name appears before the message.
+3. The message is delivered only to the actor and the recipient.
+4. Both users see the message highlighted.
 
-1. The participant enters a room.
+**Result:**
+- The private message is stored and is visible only to its author and recipient.
+
+
+## UC-08 - View Online Participants
+
+**Actor:** Participant
+
+**Main Flow:**
+1. The Actor enters a room.
 2. The system displays the participants who are currently online in that room.
-3. The list is updated when participants join or leave.
+3. The list is updated when participants join or leave the room.
 
 
-## UC-06 - Leave Room
+## UC-09 — Show Typing Indicator
+
+**Actor:** Participant
+
+**Main Flow:**
+1. The actor starts entering a message.
+2. The other participants see a temporary typing indicator.
+
+
+## UC-10 - Leave Room
 
 **Actor:** Participant
 
 **Main Flow:**
 
-1. The participant clicks the `Go to lobby` button.
-2. The system removes the participant from the room.
-3. The participant's display name becomes available in that room.
-4. The lobby page is displayed.
+1. The Actor clicks the `Go to lobby` control.
+2. The system removes the Actor as a room participant.
+3. The lobby page is displayed.
 
 **Result:**
 
-The user becomes a guest and can choose another room or display name.
+The Actor remains signed in and can choose another room.
+
+
+## UC-11 — Log Out
+
+**Actor:** Participant, Authenticated User
+
+**Main Flow:**
+1. The Actor clicks the `Log out` control.
+2. The system removes the Actor from the current room, if necessary.
+3. The system logs the Actor out.
+4. The Actor becomes a Guest.
