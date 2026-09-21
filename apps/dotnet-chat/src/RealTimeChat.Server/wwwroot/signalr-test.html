@@ -5,7 +5,7 @@
     <meta name="viewport"
           content="width=device-width, initial-scale=1.0">
 
-    <title>Raw WebSocket Test Client</title>
+    <title>SignalR Test Client</title>
 
     <style>
         body {
@@ -37,7 +37,7 @@
 </head>
 
 <body>
-    <h1>Raw WebSocket Test Client</h1>
+    <h1>SignalR Test Client</h1>
 
     <p>
         Connection:
@@ -67,16 +67,18 @@
 
     <pre id="log"></pre>
 
-    <script>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@10.0.11/dist/browser/signalr.min.js"></script>
+    <script> 
         const connectionState = document.getElementById("connectionState");
         const connectButton = document.getElementById("connectButton");
         const disconnectButton = document.getElementById("disconnectButton");
         const messageInput = document.getElementById("messageInput");
         const sendButton = document.getElementById("sendButton");
-
         const logElement = document.getElementById("log");
 
-        let socket = null;
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chat")
+            .build();
 
         function log(message) {
             const time = new Date().toLocaleTimeString();
@@ -85,7 +87,8 @@
         }
 
         function setConnected(isConnected) {
-            connectionState.textContent = isConnected ? "Connected" : "Disconnected";
+            connectionState.textContent =
+                isConnected ? "Connected" : "Disconnected";
 
             connectButton.disabled = isConnected;
             disconnectButton.disabled = !isConnected;
@@ -93,59 +96,62 @@
             sendButton.disabled = !isConnected;
         }
 
-        connectButton.addEventListener("click", () => {
-            const webSocketProtocol = location.protocol === "https:" ? "wss" : "ws";
-
-            const webSocketUrl = `${webSocketProtocol}://${location.host}/ws`;
-
-            log(`Connecting to ${webSocketUrl}`);
-
-            socket = new WebSocket(webSocketUrl);
-
-            socket.addEventListener("open", () => {
-                setConnected(true);
-                log("Connection opened");
-                messageInput.focus();
-            });
-
-            socket.addEventListener("message", event => {
-                log(`Received: ${event.data}`);
-            });
-
-            socket.addEventListener("close", event => {
-                setConnected(false);
-
-                log(`Connection closed: ` +
-                    `code=${event.code}, ` +
-                    `reason=${event.reason || "(none)"}, ` +
-                    `clean=${event.wasClean}`
-                );
-
-                socket = null;
-            });
-
-            socket.addEventListener("error", () => {
-                log("WebSocket error");
-            });
+        connection.on("ReceiveMessage", message => {
+            log(`Received: ${message}`);
         });
 
-        function sendMessage() {
+        connection.onclose(error => {
+            setConnected(false);
+
+            if (error) {
+                log(`Connection closed with error: ${error}`);
+            } else {
+                log("Connection closed");
+            }
+        });
+
+        connectButton.addEventListener("click", async () => {
+            connectButton.disabled = true;
+
+            log("Connecting to /chat");
+
+            try {
+                await connection.start();
+
+                setConnected(true);
+
+                log(`Connection opened: ${connection.connectionId}`);
+
+                messageInput.focus();
+            } catch (error) {
+                setConnected(false);
+
+                log(`Connection failed: ${error}`);
+            }
+        });
+
+        async function sendMessage() {
             const message = messageInput.value.trim();
 
             if (message.length === 0) {
                 return;
             }
 
-            if (socket?.readyState !== WebSocket.OPEN) {
+            if (connection.state !== signalR.HubConnectionState.Connected) {
                 log("Cannot send: connection is not open");
                 return;
             }
 
-            socket.send(message);
-            log(`Sent: ${message}`);
+            try {
+                await connection.invoke("SendMessage", message);
 
-            messageInput.value = "";
-            messageInput.focus();
+                log(`Sent: ${message}`);
+
+                messageInput.value = "";
+                messageInput.focus();
+            } catch (error) {
+                log(`Send failed: ${error}`);
+            }
         }
 
         sendButton.addEventListener(
@@ -162,9 +168,15 @@
             }
         );
 
-        disconnectButton.addEventListener("click", () => {
-            if (socket?.readyState === WebSocket.OPEN) {
-                socket.close(1000, "Client closed connection.");
+        disconnectButton.addEventListener("click", async () => {
+            disconnectButton.disabled = true;
+
+            log("Disconnecting");
+
+            try {
+                await connection.stop();
+            } catch (error) {
+                log(`Disconnect failed: ${error}`);
             }
         });
     </script>
