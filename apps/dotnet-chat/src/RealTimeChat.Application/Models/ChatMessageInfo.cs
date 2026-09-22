@@ -6,7 +6,7 @@
         int AuthorId, 
         string AuthorName, 
         int? RecipientId, 
-        string RecipientName, 
+        string? RecipientName, 
         string Text, 
         DateTime CreatedAt);
 }

@@ -4,7 +4,7 @@ namespace RealTimeChat.Application.Abstractions
 {
     public interface IRoomRepository
     {
-        Task<IReadOnlyList<Room>> GetAll(CancellationToken cancellationToken);
-        Task<Room?> GetById(int id, CancellationToken cancellationToken);
+        Task<IReadOnlyList<Room>> GetAllAsync(CancellationToken cancellationToken);
+        Task<Room?> GetByIdAsync(int id, CancellationToken cancellationToken);
     }
 }

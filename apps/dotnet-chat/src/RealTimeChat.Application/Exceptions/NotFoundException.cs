@@ -1,6 +1,12 @@
-﻿namespace RealTimeChat.Application.Exceptions
+﻿using System.Reflection;
+
+namespace RealTimeChat.Application.Exceptions
 {
-    internal class NotFoundException
+    public class NotFoundException : Exception
     {
+        public NotFoundException(string resourceName, object resourceId)
+            : base($"{resourceName} with ID '{resourceId}' was not found.")
+        {
+        }
     }
 }
