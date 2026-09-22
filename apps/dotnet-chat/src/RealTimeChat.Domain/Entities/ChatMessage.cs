@@ -12,8 +12,6 @@ namespace RealTimeChat.Domain.Entities
         public string Text { get; private set; } = string.Empty;
         public DateTime CreatedAt { get; private set; }
 
-        public bool IsPrivate => RecipientId.HasValue;
-
         private ChatMessage()
         {
         }
@@ -28,7 +26,7 @@ namespace RealTimeChat.Domain.Entities
                 throw new ArgumentOutOfRangeException(nameof(authorId), "Author ID must be positive.");
             }
 
-            if (recipientId is <= 0) { // recipientId is null or <= 0
+            if (recipientId is <= 0) { // null means broadcast; a specified recipient ID must be positive
                 throw new ArgumentOutOfRangeException(nameof(recipientId), "Recipient ID must be positive.");
             }
 
