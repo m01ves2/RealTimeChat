@@ -17,7 +17,7 @@ namespace RealTimeChat.Infrastructure.Persistence
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
-            base.OnModelCreating(builder); // creates AspNetUsers, AspNetRoles, AspNetUserRoles
+            base.OnModelCreating(builder); // Configures the ASP.NET Core Identity user model.
 
             builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly); // finds RoomConfiguration and ChatMessageConfiguration
         }
