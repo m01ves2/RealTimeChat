@@ -21,6 +21,30 @@ namespace RealTimeChat.Infrastructure.Persistence.Configurations
 
             builder.HasIndex(room => room.Name)
                 .IsUnique();
+
+
+            // Используем анонимные объекты, потому что у Room.Id private setter, а EF seed требует заранее определённые стабильные ID
+            builder.HasData(
+                            new
+                            {
+                                Id = 1,
+                                Name = "General"
+                            },
+                            new
+                            {
+                                Id = 2,
+                                Name = "Programming"
+                            },
+                            new
+                            {
+                                Id = 3,
+                                Name = "Gaming"
+                            },
+                            new
+                            {
+                                Id = 4,
+                                Name = "Off Topic"
+                            });
         }
     }
 }
