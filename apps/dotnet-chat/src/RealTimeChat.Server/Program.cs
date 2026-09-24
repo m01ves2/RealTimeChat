@@ -31,6 +31,8 @@ app.MapGet("/", () => "Hello World!");
 
 app.MapAuthEndpoints();
 
+app.MapRoomEndpoints();
+
 app.MapHub<ChatHub>("/chat");
 
 app.Run();
