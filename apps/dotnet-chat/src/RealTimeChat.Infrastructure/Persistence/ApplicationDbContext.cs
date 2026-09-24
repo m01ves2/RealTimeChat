@@ -17,9 +17,10 @@ namespace RealTimeChat.Infrastructure.Persistence
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
+            //вызывается настройка схемы Identity из базового контекста.Убирать эту строку нельзя: наши собственные конфигурации не заменяют определения модели Identity.
             base.OnModelCreating(builder); // Configures the ASP.NET Core Identity user model.
 
-            builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly); // finds RoomConfiguration and ChatMessageConfiguration
+            builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly); // finds RoomConfiguration and ChatMessageConfiguration and applies them
         }
     }
 }
