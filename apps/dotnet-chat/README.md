@@ -49,3 +49,30 @@ The complete chat application will be built on SignalR.
 It will include chat rooms, nickname-based entry, PostgreSQL message
 history, online users, typing indicators, connection state handling,
 automatic reconnection, and Blazor clients.
+
+## Manual authentication check
+
+We can use `curl` to check manually server authentification. 
+Server is meant to be run on 5065 port, curl is used on the same machine.
+
+- register:
+curl -i -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"userName":"ChatTester","password":<test-password>}' \
+  http://localhost:5065/api/auth/register
+
+- login
+curl -i -sS -c /tmp/chat-cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{ "userName":"ChatTester","password":<test-password>}' \
+  http://localhost:5065/api/auth/login
+
+- wrong password
+curl -i -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"userName":"ChatTester","password":<wrong-test-password>}' \
+  http://localhost:5065/api/auth/login
+
+- logout
+curl -i -sS -b / tmp / chat-cookies.txt -c /tmp/chat-cookies.txt \
+  -X POST http://localhost:5065/api/auth/logout
