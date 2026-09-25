@@ -52,6 +52,7 @@
         <button id="disconnectButton" disabled>
             Disconnect
         </button>
+        <button id="switchButton" disabled>Switch to room 3</button>
     </div>
 
     <div class="controls">
@@ -75,8 +76,9 @@
         const messageInput = document.getElementById("messageInput");
         const sendButton = document.getElementById("sendButton");
         const logElement = document.getElementById("log");
+        const switchButton = document.getElementById("switchButton");
 
-        const roomId = 2;
+        let roomId = 2;
 
         const connection = new signalR.HubConnectionBuilder()
             .withUrl("/chat")
@@ -96,6 +98,7 @@
             disconnectButton.disabled = !isConnected;
             messageInput.disabled = !isConnected;
             sendButton.disabled = !isConnected;
+            switchButton.disabled = !isConnected;
         }
 
         // connection.on("ReceiveMessage", message => {
@@ -138,6 +141,17 @@
                 setConnected(false);
 
                 log(`Connection failed: ${error}`);
+            }
+        });
+
+        switchButton.addEventListener("click", async () => {
+            try {
+                await connection.invoke("JoinRoom", 3);
+                roomId = 3;
+                log("Switched from room 2 to room 3");
+                switchButton.disabled = true;
+            } catch (error) {
+                log(`Switch failed: ${error.message}`);
             }
         });
 
