@@ -1,6 +1,7 @@
-﻿using RealTimeChat.Application.Exceptions;
+﻿using Microsoft.AspNetCore.Identity;
+using RealTimeChat.Application.Exceptions;
 using RealTimeChat.Application.Services;
-using RealTimeChat.Domain.Entities;
+using RealTimeChat.Infrastructure.Identity;
 
 namespace RealTimeChat.Server.Endpoints
 {
@@ -19,11 +20,35 @@ namespace RealTimeChat.Server.Endpoints
                 return Results.Ok(rooms);
             });
 
-            group.MapGet("/{roomId:int}", async (int roomId, ChatService chatService, CancellationToken cancellationToken) =>
+            group.MapGet("/{roomId:int}", async (int roomId,
+                                                 ChatService chatService, CancellationToken cancellationToken) =>
             {
                 try {
                     var room = await chatService.GetRoomAsync(roomId, cancellationToken);
                     return Results.Ok(room);
+                }
+                catch (NotFoundException) {
+                    return Results.NotFound();
+                }
+            });
+
+            group.MapGet("/{roomId:int}/messages", async (int roomId, HttpContext context,
+                                                          UserManager<ApplicationUser> userManager,
+                                                          ChatService chatService,
+                                                          CancellationToken cancellationToken) =>
+            {
+                var userIdText = userManager.GetUserId(context.User);
+                if (!int.TryParse(userIdText, out var userId)) {
+                    return Results.Unauthorized();
+                }
+
+                try {
+                    await chatService.GetRoomAsync(roomId, cancellationToken);
+
+                    var messages = await chatService.GetRecentMessagesAsync(
+                        roomId, userId, cancellationToken);
+
+                    return Results.Ok(messages);
                 }
                 catch (NotFoundException) {
                     return Results.NotFound();
