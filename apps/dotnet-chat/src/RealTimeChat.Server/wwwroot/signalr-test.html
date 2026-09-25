@@ -68,13 +68,15 @@
     <pre id="log"></pre>
 
     <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@10.0.11/dist/browser/signalr.min.js"></script>
-    <script> 
+    <script>
         const connectionState = document.getElementById("connectionState");
         const connectButton = document.getElementById("connectButton");
         const disconnectButton = document.getElementById("disconnectButton");
         const messageInput = document.getElementById("messageInput");
         const sendButton = document.getElementById("sendButton");
         const logElement = document.getElementById("log");
+
+        const roomId = 2;
 
         const connection = new signalR.HubConnectionBuilder()
             .withUrl("/chat")
@@ -96,8 +98,11 @@
             sendButton.disabled = !isConnected;
         }
 
+        // connection.on("ReceiveMessage", message => {
+        //     log(`Received: ${message}`);
+        // });
         connection.on("ReceiveMessage", message => {
-            log(`Received: ${message}`);
+            log(`Received: ${JSON.stringify(message)}`);
         });
 
         connection.onclose(error => {
@@ -122,6 +127,12 @@
 
                 log(`Connection opened: ${connection.connectionId}`);
 
+                try {
+                    await connection.invoke("JoinRoom", roomId);
+                    log(`Joined room ${roomId}`);
+                } catch (error) {
+                    log(`Join failed: ${error.message}`);
+                }
                 messageInput.focus();
             } catch (error) {
                 setConnected(false);
@@ -143,7 +154,7 @@
             }
 
             try {
-                await connection.invoke("SendMessage", message);
+                await connection.invoke("SendMessage", roomId, message);
 
                 log(`Sent: ${message}`);
 
@@ -154,14 +165,9 @@
             }
         }
 
-        sendButton.addEventListener(
-            "click",
-            sendMessage
-        );
+        sendButton.addEventListener("click", sendMessage);
 
-        messageInput.addEventListener(
-            "keydown",
-            event => {
+        messageInput.addEventListener("keydown", event => {
                 if (event.key === "Enter") {
                     sendMessage();
                 }

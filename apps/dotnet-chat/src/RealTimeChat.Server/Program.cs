@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.SignalR;
 using RealTimeChat.Application;
 using RealTimeChat.Infrastructure;
-using RealTimeChat.Server.Hubs;
 using RealTimeChat.Server.Endpoints;
+using RealTimeChat.Server.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,7 +19,10 @@ builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme) // вы�
 
 builder.Services.AddAuthorization();
 
-builder.Services.AddSignalR();
+//builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddHubOptions<ChatHub>(options =>
+        options.AddFilter<ChatHubExceptionFilter>()); // Add exception handling for SignalR
 
 var app = builder.Build();
 
@@ -33,6 +37,6 @@ app.MapAuthEndpoints();
 
 app.MapRoomEndpoints();
 
-app.MapHub<ChatHub>("/chat");
+app.MapHub<ChatHub>("/chat"); //Create ChatHub
 
 app.Run();
