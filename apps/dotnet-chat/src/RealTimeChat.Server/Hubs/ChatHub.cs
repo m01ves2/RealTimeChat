@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using RealTimeChat.Application.Models;
 using RealTimeChat.Application.Services;
 
 namespace RealTimeChat.Server.Hubs
@@ -35,6 +36,22 @@ namespace RealTimeChat.Server.Hubs
 
         public async Task SendMessage(int roomId, string text)
         {
+            var message = await SaveMessageAsync(roomId, text, recipientId: null);
+
+            await Clients.Group($"room:{roomId}").SendAsync("ReceiveMessage", message);
+        }
+
+        public async Task SendPrivateMessage(int roomId, string text, int recipientId)
+        {
+            var message = await SaveMessageAsync(roomId, text, recipientId);
+
+            var userIds = new[] { message.AuthorId.ToString(), recipientId.ToString() }.Distinct().ToArray();
+
+            await Clients.Users(userIds).SendAsync("ReceiveMessage", message);
+        }
+
+        public async Task<ChatMessageInfo> SaveMessageAsync(int roomId, string text, int? recipientId)
+        {
             if (!int.TryParse(Context.UserIdentifier, out var authorId)) { // Context.UserIdentifier - userId with this connection Context.ConnectionId
                 throw new HubException("User ID is unavailable.");
             }
@@ -51,10 +68,10 @@ namespace RealTimeChat.Server.Hubs
                 roomId,
                 authorId,
                 text,
-                recipientId: null,
+                recipientId,
                 Context.ConnectionAborted);
-
-            await Clients.Group($"room:{roomId}").SendAsync("ReceiveMessage", message);
+            
+            return message;
         }
     }
 }

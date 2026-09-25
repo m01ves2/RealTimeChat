@@ -66,6 +66,12 @@
         </button>
     </div>
 
+    <input id="recipientInput"
+           type="number"
+           min="1"
+           placeholder="Recipient ID (empty = everyone)"
+           disabled>
+
     <pre id="log"></pre>
 
     <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@10.0.11/dist/browser/signalr.min.js"></script>
@@ -77,6 +83,7 @@
         const sendButton = document.getElementById("sendButton");
         const logElement = document.getElementById("log");
         const switchButton = document.getElementById("switchButton");
+        const recipientInput = document.getElementById("recipientInput");
 
         let roomId = 2;
 
@@ -99,6 +106,7 @@
             messageInput.disabled = !isConnected;
             sendButton.disabled = !isConnected;
             switchButton.disabled = !isConnected;
+            recipientInput.disabled = !isConnected;
         }
 
         // connection.on("ReceiveMessage", message => {
@@ -168,12 +176,28 @@
             }
 
             try {
-                await connection.invoke("SendMessage", roomId, message);
+                // await connection.invoke("SendMessage", roomId, message);
+                const recipientText = recipientInput.value.trim();
 
-                log(`Sent: ${message}`);
+                if (recipientText === "") {
+                    await connection.invoke("SendMessage", roomId, message);
+                    log(`Sent to room ${roomId}: ${message}`);
+                } else {
+                    const recipientId = Number(recipientText);
+
+                    if (!Number.isInteger(recipientId) || recipientId <= 0) {
+                        log("Recipient ID must be a positive integer");
+                        return;
+                    }
+
+                    await connection.invoke("SendPrivateMessage", roomId, message, recipientId);
+
+                    log(`Sent privately to user ${recipientId}: ${message}`);
+                }
 
                 messageInput.value = "";
                 messageInput.focus();
+
             } catch (error) {
                 log(`Send failed: ${error}`);
             }
@@ -182,10 +206,10 @@
         sendButton.addEventListener("click", sendMessage);
 
         messageInput.addEventListener("keydown", event => {
-                if (event.key === "Enter") {
-                    sendMessage();
-                }
+            if (event.key === "Enter") {
+                sendMessage();
             }
+        }
         );
 
         disconnectButton.addEventListener("click", async () => {
