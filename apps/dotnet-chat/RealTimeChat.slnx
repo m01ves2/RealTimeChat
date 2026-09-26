@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="RealTimeChat.BlazorWasm/RealTimeChat.BlazorWasm.csproj" Id="40e4d3ed-be5d-48a7-a487-9be289d81099" />
     <Project Path="src/RealTimeChat.Application/RealTimeChat.Application.csproj" />
     <Project Path="src/RealTimeChat.Contracts/RealTimeChat.Contracts.csproj" />
     <Project Path="src/RealTimeChat.Domain/RealTimeChat.Domain.csproj" />
