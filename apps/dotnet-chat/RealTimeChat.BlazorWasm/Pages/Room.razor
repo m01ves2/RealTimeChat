@@ -1,0 +1,51 @@
+﻿@page "/rooms/{RoomId:int}"
+@using System.Net.Http.Json
+@using RealTimeChat.Contracts.Messages
+@using RealTimeChat.Contracts.Rooms
+
+@inject HttpClient Http
+
+<PageTitle>@(_room?.Name ?? "Комната")</PageTitle>
+
+<a href="/">← К комнатам</a>
+
+@if (_room is null) {
+    <p>Загружаем комнату...</p>
+}
+else {
+    <h1>@_room.Name</h1>
+    <h2>История сообщений</h2>
+
+    @if (_messages.Length == 0) {
+        <p>Сообщений пока нет.</p>
+    }
+    else {
+        <ul>
+            @foreach (var message in _messages) {
+                <li>
+                    <strong>@message.AuthorName</strong>
+                    @if (message.RecipientName is not null) {
+                        <span> → @message.RecipientName (лично)</span>
+                    }
+                    <span> [@message.CreatedAt.ToLocalTime().ToString("HH:mm")]</span>
+                    <span>: @message.Text</span>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter]
+    public int RoomId { get; set; }
+
+    private ChatMessageResponse[] _messages = [];
+
+    private RoomResponse? _room;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _room = await Http.GetFromJsonAsync<RoomResponse>($"api/rooms/{RoomId}");
+        _messages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{RoomId}/messages") ?? [];
+    }
+}
