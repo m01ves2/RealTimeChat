@@ -2,19 +2,24 @@
 @using System.Net.Http.Json
 @using RealTimeChat.Contracts.Messages
 @using RealTimeChat.Contracts.Rooms
+@using Microsoft.AspNetCore.SignalR.Client
+
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
 
 @inject HttpClient Http
 
-<PageTitle>@(_room?.Name ?? "Комната")</PageTitle>
+<PageTitle>@(_room?.Name ?? "Room")</PageTitle>
 
-<a href="/">← К комнатам</a>
+<p>SignalR: @_connectionStatus</p>
+<a href="/">← To the rooms</a>
 
 @if (_room is null) {
-    <p>Загружаем комнату...</p>
+    <p>Loading room...</p>
 }
 else {
     <h1>@_room.Name</h1>
-    <h2>История сообщений</h2>
+    <h2>Message history</h2>
 
     @if (_messages.Length == 0) {
         <p>Сообщений пока нет.</p>
@@ -25,7 +30,7 @@ else {
                 <li>
                     <strong>@message.AuthorName</strong>
                     @if (message.RecipientName is not null) {
-                        <span> → @message.RecipientName (лично)</span>
+                        <span> → @message.RecipientName (private)</span>
                     }
                     <span> [@message.CreatedAt.ToLocalTime().ToString("HH:mm")]</span>
                     <span>: @message.Text</span>
@@ -33,6 +38,22 @@ else {
             }
         </ul>
     }
+
+    <form @onsubmit="SendAsync" @onsubmit:preventDefault>
+        <label for="recipient-id">Recipient ID (optional)</label>
+        <input id="recipient-id" type="number" min="1" @bind="_recipientId" />
+
+        <label for="message-text">Message</label>
+        <textarea id="message-text" rows="3" maxlength="500" @bind="_draft" @bind:event="oninput"></textarea>
+
+        <button type="submit" disabled="@(_hubConnection?.State != HubConnectionState.Connected || string.IsNullOrWhiteSpace(_draft))">
+            Send
+        </button>
+
+        @if (_sendError is not null) {
+            <p>@_sendError</p>
+        }
+    </form>
 }
 
 @code {
@@ -43,9 +64,87 @@ else {
 
     private RoomResponse? _room;
 
+    private HubConnection? _hubConnection;
+    private string _connectionStatus = "Connecting...";
+    private string _draft = "";
+
+    private int? _recipientId;
+    private string? _sendError;
+
     protected override async Task OnParametersSetAsync()
     {
         _room = await Http.GetFromJsonAsync<RoomResponse>($"api/rooms/{RoomId}");
         _messages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{RoomId}/messages") ?? [];
+
+        try {
+            if (_hubConnection is null) {
+                _hubConnection = new HubConnectionBuilder()
+                    .WithUrl(Navigation.ToAbsoluteUri("chat"))
+                    .Build();
+
+                _hubConnection.On<ChatMessageResponse>("ReceiveMessage", async message =>
+                {
+                    await InvokeAsync(() =>
+                    {
+                        if (message.RoomId != RoomId ||
+                            _messages.Any(m => m.Id == message.Id)) {
+                            return;
+                        }
+
+                        _messages = [.. _messages, message];
+                        StateHasChanged();
+                    });
+                });
+
+                await _hubConnection.StartAsync();
+            }
+
+            await _hubConnection.InvokeAsync("JoinRoom", RoomId);
+            _connectionStatus = "Connected to the room";
+
+        }
+        catch (Exception ex) {
+            _connectionStatus = $"Connection Error: {ex.Message}";
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        _sendError = null;
+
+        if (_hubConnection?.State != HubConnectionState.Connected) {
+            return;
+        }
+
+        var text = _draft.Trim();
+
+        if (string.IsNullOrWhiteSpace(_draft))
+            return;
+
+        if (text.Length is 0 or > 500) {
+            return;
+        }
+
+
+        try {
+            if (_recipientId is int recipientId) {
+                await _hubConnection.InvokeAsync("SendPrivateMessage", RoomId, text, recipientId);
+            }
+            else {
+                await _hubConnection.InvokeAsync("SendMessage", RoomId, text);
+            }
+
+            _draft = "";
+        }
+        catch (Exception ex) {
+            _sendError = ex.Message;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection is not null) {
+            await _hubConnection.DisposeAsync();
+        }
     }
 }

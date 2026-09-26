@@ -16,24 +16,20 @@
 else if (_user is null) {
     <h2>Вход</h2>
 
-    <input placeholder="Имя пользователя"
-           @bind="_userName"
-           @bind:event="oninput" />
+<form @onsubmit="LoginAsync" @onsubmit:preventDefault>
+    <input placeholder="Username" @bind="_userName" @bind:event="oninput" />
+    <input type="password" placeholder="Password" @bind="_password" @bind:event="oninput" />
 
-    <input type="password"
-           placeholder="Пароль"
-           @bind="_password"
-           @bind:event="oninput" />
-
-    <button @onclick="LoginAsync">Войти</button>
+    <button @onclick="LoginAsync" type="submit">Enter</button>
+</form>
 
     @if (_loginError is not null) {
         <p>@_loginError</p>
     }
 }
 else {
-    <p>Вы вошли как @_user.UserName (ID: @_user.Id).</p>
-    <button @onclick="LogoutAsync">Выйти</button>
+    <p>You entered as @_user.UserName (ID: @_user.Id).</p>
+    <button @onclick="LogoutAsync">Exit</button>
 
     <h2>Комнаты</h2>
 
@@ -72,7 +68,7 @@ else {
         _password = string.Empty;
 
         if (response.StatusCode == HttpStatusCode.Unauthorized) {
-            _loginError = "Неверное имя пользователя или пароль.";
+            _loginError = "Wrong username or password.";
             return;
         }
 
