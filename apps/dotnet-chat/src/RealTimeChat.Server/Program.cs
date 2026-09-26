@@ -25,13 +25,11 @@ builder.Services.AddSignalR()
         options.AddFilter<ChatHubExceptionFilter>()); // Add exception handling for SignalR
 
 var app = builder.Build();
-
+app.UseBlazorFrameworkFiles(); //добавляем возможность раздавать файлы WASM самим сервером!
 app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.MapGet("/", () => "Hello World!");
 
 app.MapAuthEndpoints();
 
@@ -39,4 +37,5 @@ app.MapRoomEndpoints();
 
 app.MapHub<ChatHub>("/chat"); //Create ChatHub
 
+app.MapFallbackToFile("index.html"); // раздача файла WASM
 app.Run();
