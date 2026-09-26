@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using RealTimeChat.Application.Exceptions;
 using RealTimeChat.Application.Services;
+using RealTimeChat.Contracts.Rooms;
 using RealTimeChat.Infrastructure.Identity;
 
 namespace RealTimeChat.Server.Endpoints
@@ -17,7 +18,10 @@ namespace RealTimeChat.Server.Endpoints
             group.MapGet("/", async (ChatService chatService, CancellationToken cancellationToken) =>
             {
                 var rooms = await chatService.GetRoomsAsync(cancellationToken);
-                return Results.Ok(rooms);
+                
+                var response = rooms.Select(room => new RoomResponse(room.Id, room.Name)).ToArray();
+
+                return Results.Ok(response);
             });
 
             group.MapGet("/{roomId:int}", async (int roomId,
