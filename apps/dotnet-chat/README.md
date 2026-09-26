@@ -52,27 +52,45 @@ automatic reconnection, and Blazor clients.
 
 ## Manual authentication check
 
-We can use `curl` to check manually server authentification. 
+We can use `curl` or DevTools to check manually server authentification. 
 Server is meant to be run on 5065 port, curl is used on the same machine.
 
+### authentification testing by `curl`
 - register:
 curl -i -sS \
   -H 'Content-Type: application/json' \
-  -d '{"userName":"ChatTester","password":<test-password>}' \
+  -d '{"userName":"ChatTester","password":"TestPass123!"}' \
   http://localhost:5065/api/auth/register
 
 - login
 curl -i -sS -c /tmp/chat-cookies.txt \
   -H 'Content-Type: application/json' \
-  -d '{ "userName":"ChatTester","password":<test-password>}' \
+  -d '{ "userName":"ChatTester","password":"TestPass123!"}' \
   http://localhost:5065/api/auth/login
 
 - wrong password
 curl -i -sS \
   -H 'Content-Type: application/json' \
-  -d '{"userName":"ChatTester","password":<wrong-test-password>}' \
+  -d '{"userName":"ChatTester","password":"TestPass123!}' \
   http://localhost:5065/api/auth/login
 
 - logout
 curl -i -sS -b / tmp / chat-cookies.txt -c /tmp/chat-cookies.txt \
   -X POST http://localhost:5065/api/auth/logout
+
+
+### authentification testing by DevTools
+- Start `RealTimeChat.Server` and open its `/` page in the browser.
+- Run this in DevTools Console on that page:
+
+  await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+        userName: "ChatTester",
+        password: "TestPass123!"
+    })
+}).then(async r => ({ status: r.status, body: await r.text() }));
+
+- Then check `/api/rooms`, `/api/rooms/2`, and `/api/rooms/999`
+in the same browser.
