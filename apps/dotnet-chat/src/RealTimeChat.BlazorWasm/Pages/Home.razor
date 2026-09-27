@@ -8,42 +8,56 @@
 
 <PageTitle>Real-Time Chat</PageTitle>
 
-<h1>Real-Time Chat</h1>
+<main class="chat-page lobby-page">
+    <h1>Real-Time Chat</h1>
 
-@if (_isLoading) {
-    <p>Проверяем вход...</p>
-}
-else if (_user is null) {
-    <h2>Вход</h2>
-
-<form @onsubmit="LoginAsync" @onsubmit:preventDefault>
-    <input placeholder="Username" @bind="_userName" @bind:event="oninput" />
-    <input type="password" placeholder="Password" @bind="_password" @bind:event="oninput" />
-
-    <button @onclick="LoginAsync" type="submit">Enter</button>
-</form>
-
-    @if (_loginError is not null) {
-        <p>@_loginError</p>
+    @if (_isLoading) {
+        <p>Checking your session...</p>
     }
-}
-else {
-    <p>You entered as @_user.UserName (ID: @_user.Id).</p>
-    <button @onclick="LogoutAsync">Exit</button>
+    else if (_user is null) {
+        <section>
+            <h2>Sign in</h2>
 
-    <h2>Комнаты</h2>
+            <form class="login-form" @onsubmit="LoginAsync" @onsubmit:preventDefault>
+                <label for="username">Username</label>
+                <input id="username" @bind="_userName" @bind:event="oninput" />
 
-    @if (_rooms.Length == 0) {
-        <p>Комнат пока нет.</p>
+                <label for="password">Password</label>
+                <input id="password" type="password"
+                       @bind="_password" @bind:event="oninput" />
+
+                <button type="submit">Sign in</button>
+            </form>
+
+            @if (_loginError is not null) {
+                <p role="alert">@_loginError</p>
+            }
+        </section>
     }
     else {
-        <ul>
-            @foreach (var room in _rooms) {
-                <li><a href="@($"/rooms/{room.Id}")">@room.Name</a></li>
+        <header class="lobby-header">
+            <p>Signed in as <strong>@_user.UserName</strong></p>
+            <button type="button" @onclick="LogoutAsync">Sign out</button>
+        </header>
+
+        <section>
+            <h2>Rooms</h2>
+
+            @if (_rooms.Length == 0) {
+                <p>No rooms available.</p>
             }
-        </ul>
+            else {
+                <ul class="room-list">
+                    @foreach (var room in _rooms) {
+                        <li>
+                            <a href="@($"/rooms/{room.Id}")">@room.Name</a>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
     }
-}
+</main>
 
 @code {
     private CurrentUserResponse? _user;

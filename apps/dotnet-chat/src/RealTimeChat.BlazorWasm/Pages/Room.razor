@@ -12,61 +12,102 @@
 
 <PageTitle>@(_room?.Name ?? "Room")</PageTitle>
 
-<p>SignalR: @_connectionStatus</p>
-<a href="/">← To the rooms</a>
+<main class="chat-page room-page">
+    <header class="room-header">
+        <a class="back-to-rooms" href="/">← Rooms</a>
+        <span role="status">@_connectionStatus</span>
+    </header>
 
-@if (_room is null) {
-    <p>Loading room...</p>
-}
-else {
-    <h1>@_room.Name</h1>
-    <h2>Message history</h2>
-
-    @if (_messages.Length == 0) {
-        <p>Сообщений пока нет.</p>
+    @if (_room is null) {
+        <p>Loading room...</p>
     }
     else {
-        <ul>
-            @foreach (var message in _messages) {
-                <li>
-                    <strong>@message.AuthorName</strong>
-                    @if (message.RecipientName is not null) {
-                        <span> → @message.RecipientName (private)</span>
+        <h1>@_room.Name</h1>
+
+        <div class="room-layout">
+            <section class="room-conversation">
+                <h2 id="messages-title">Messages</h2>
+
+                <div class="message-scroll">
+                @if (_messages.Length == 0) {
+                    <p>No messages yet.</p>
+                }
+                else {
+                    <ul class="message-list">
+                        @foreach (var message in _messages) {
+                                <li class="@(message.RecipientId is null ? "message" : "message message-private")">
+                                <div class="message-meta">
+                                        <strong>
+                                            <button type="button" class="recipient-link"
+                                                    @onclick="() => SelectRecipient(message.AuthorId, message.AuthorName)">
+                                                @message.AuthorName
+                                            </button>
+                                        </strong>
+
+                                    @if (message.RecipientName is not null) {
+                                            <span class="private-recipient">→ @message.RecipientName · Private</span>
+                                    }
+
+                                    <time datetime="@message.CreatedAt.ToString("O")">
+                                        @message.CreatedAt.ToLocalTime().ToString("HH:mm")
+                                    </time>
+                                </div>
+
+                                <p class="message-text">@message.Text</p>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+            </section>
+
+            <aside class="room-users">
+                <h2>Online users</h2>
+                <ul>
+                    @foreach (var user in _onlineUsers) {
+                        <li>
+                            <button type="button" class="recipient-link"
+                                    @onclick="() => SelectRecipient(user.UserId, user.UserName)">
+                                @user.UserName
+                            </button>
+                        </li>
                     }
-                    <span> [@message.CreatedAt.ToLocalTime().ToString("HH:mm")]</span>
-                    <span>: @message.Text</span>
-                </li>
+                </ul>
+            </aside>
+        </div>
+
+        @if (_typingUserName is not null) {
+            <p role="status">@_typingUserName is typing...</p>
+        }
+
+        <form class="room-composer" @onsubmit="SendAsync" @onsubmit:preventDefault>
+            <label for="recipient-name">To</label>
+            <div class="recipient-row">
+                <input id="recipient-name"
+                       value="@(_recipientName ?? "Everyone")"
+                       readonly />
+
+                @if (_recipientId is not null) {
+                    <button type="button" class="recipient-reset"
+                            @onclick="SendToEveryone">
+                        Everyone
+                    </button>
+                }
+            </div>
+
+            <label for="message-text">Message</label>
+            <textarea id="message-text" rows="3" maxlength="500" @bind="_draft" @bind:event="oninput" @bind:after="NotifyTypingAsync"></textarea>
+
+            <button type="submit" disabled="@(_hubConnection?.State != HubConnectionState.Connected || string.IsNullOrWhiteSpace(_draft))">
+                Send
+            </button>
+
+            @if (_sendError is not null) {
+                <p role="alert">@_sendError</p>
             }
-        </ul>
+        </form>
     }
-
-    <h2>Online users</h2>
-    <ul>
-        @foreach (var user in _onlineUsers) {
-            <li>@user.UserName</li>
-        }
-    </ul>
-
-    @if (_typingUserName is not null) {
-        <p role="status">@_typingUserName is typing...</p>
-    }
-
-    <form @onsubmit="SendAsync" @onsubmit:preventDefault>
-        <label for="recipient-id">Recipient ID (optional)</label>
-        <input id="recipient-id" type="number" min="1" @bind="_recipientId" />
-
-        <label for="message-text">Message</label>
-        <textarea id="message-text" rows="3" maxlength="500" @bind="_draft" @bind:event="oninput" @bind:after="NotifyTypingAsync"></textarea>
-
-        <button type="submit" disabled="@(_hubConnection?.State != HubConnectionState.Connected || string.IsNullOrWhiteSpace(_draft))">
-            Send
-        </button>
-
-        @if (_sendError is not null) {
-            <p>@_sendError</p>
-        }
-    </form>
-}
+</main>
 
 @code {
     [Parameter]
@@ -81,6 +122,7 @@ else {
     private string _draft = "";
 
     private int? _recipientId;
+    private string? _recipientName;
     private string? _sendError;
 
     private OnlineUserResponse[] _onlineUsers = [];
@@ -91,6 +133,8 @@ else {
 
     protected override async Task OnParametersSetAsync()
     {
+        SendToEveryone();
+
         _room = await Http.GetFromJsonAsync<RoomResponse>($"api/rooms/{RoomId}");
         _messages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{RoomId}/messages") ?? [];
 
@@ -305,5 +349,17 @@ else {
         catch (Exception ex) {
             Console.Error.WriteLine($"Could not clear typing status: {ex.Message}");
         }
+    }
+
+    private void SelectRecipient(int userId, string userName)
+    {
+        _recipientId = userId;
+        _recipientName = userName;
+    }
+
+    private void SendToEveryone()
+    {
+        _recipientId = null;
+        _recipientName = null;
     }
 }
