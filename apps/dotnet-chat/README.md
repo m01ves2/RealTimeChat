@@ -94,3 +94,21 @@ curl -i -sS -b / tmp / chat-cookies.txt -c /tmp/chat-cookies.txt \
 
 - Then check `/api/rooms`, `/api/rooms/2`, and `/api/rooms/999`
 in the same browser.
+
+
+## Blazor WebAssembly Chat
+
+RealTimeChat.Server serves the Blazor WebAssembly client, HTTP API, and
+SignalR hub from the same origin. ASP.NET Core Identity authenticates users
+with cookies; PostgreSQL stores rooms, users, and messages.
+
+After signing in, users can choose a room, view their 20 most recent
+visible messages, and send public or private messages. Clicking a nickname
+in the conversation or online users list selects a private recipient.
+
+SignalR delivers messages, online user lists, and typing notifications.
+The room shows its connection state. After reconnecting, the client rejoins
+the room and loads recent messages that it may have missed.
+
+The layout adapts to narrow screens. Message history scrolls independently
+and follows new messages only while the reader is near the bottom.
