@@ -49,3 +49,66 @@ The complete chat application will be built on SignalR.
 It will include chat rooms, nickname-based entry, PostgreSQL message
 history, online users, typing indicators, connection state handling,
 automatic reconnection, and Blazor clients.
+
+## Manual authentication check
+
+We can use `curl` or DevTools to check manually server authentification. 
+Server is meant to be run on 5065 port, curl is used on the same machine.
+
+### authentification testing by `curl`
+- register:
+curl -i -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"userName":"ChatTester","password":"TestPass123!"}' \
+  http://localhost:5065/api/auth/register
+
+- login
+curl -i -sS -c /tmp/chat-cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{ "userName":"ChatTester","password":"TestPass123!"}' \
+  http://localhost:5065/api/auth/login
+
+- wrong password
+curl -i -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"userName":"ChatTester","password":"TestPass123!}' \
+  http://localhost:5065/api/auth/login
+
+- logout
+curl -i -sS -b / tmp / chat-cookies.txt -c /tmp/chat-cookies.txt \
+  -X POST http://localhost:5065/api/auth/logout
+
+
+### authentification testing by DevTools
+- Start `RealTimeChat.Server` and open its `/` page in the browser.
+- Run this in DevTools Console on that page:
+
+  await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+        userName: "ChatTester",
+        password: "TestPass123!"
+    })
+}).then(async r => ({ status: r.status, body: await r.text() }));
+
+- Then check `/api/rooms`, `/api/rooms/2`, and `/api/rooms/999`
+in the same browser.
+
+
+## Blazor WebAssembly Chat
+
+RealTimeChat.Server serves the Blazor WebAssembly client, HTTP API, and
+SignalR hub from the same origin. ASP.NET Core Identity authenticates users
+with cookies; PostgreSQL stores rooms, users, and messages.
+
+After signing in, users can choose a room, view their 20 most recent
+visible messages, and send public or private messages. Clicking a nickname
+in the conversation or online users list selects a private recipient.
+
+SignalR delivers messages, online user lists, and typing notifications.
+The room shows its connection state. After reconnecting, the client rejoins
+the room and loads recent messages that it may have missed.
+
+The layout adapts to narrow screens. Message history scrolls independently
+and follows new messages only while the reader is near the bottom.

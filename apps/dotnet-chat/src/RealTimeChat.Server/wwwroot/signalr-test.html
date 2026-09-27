@@ -52,6 +52,7 @@
         <button id="disconnectButton" disabled>
             Disconnect
         </button>
+        <button id="switchButton" disabled>Switch to room 3</button>
     </div>
 
     <div class="controls">
@@ -65,16 +66,26 @@
         </button>
     </div>
 
+    <input id="recipientInput"
+           type="number"
+           min="1"
+           placeholder="Recipient ID (empty = everyone)"
+           disabled>
+
     <pre id="log"></pre>
 
     <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@10.0.11/dist/browser/signalr.min.js"></script>
-    <script> 
+    <script>
         const connectionState = document.getElementById("connectionState");
         const connectButton = document.getElementById("connectButton");
         const disconnectButton = document.getElementById("disconnectButton");
         const messageInput = document.getElementById("messageInput");
         const sendButton = document.getElementById("sendButton");
         const logElement = document.getElementById("log");
+        const switchButton = document.getElementById("switchButton");
+        const recipientInput = document.getElementById("recipientInput");
+
+        let roomId = 2;
 
         const connection = new signalR.HubConnectionBuilder()
             .withUrl("/chat")
@@ -94,10 +105,15 @@
             disconnectButton.disabled = !isConnected;
             messageInput.disabled = !isConnected;
             sendButton.disabled = !isConnected;
+            switchButton.disabled = !isConnected;
+            recipientInput.disabled = !isConnected;
         }
 
+        // connection.on("ReceiveMessage", message => {
+        //     log(`Received: ${message}`);
+        // });
         connection.on("ReceiveMessage", message => {
-            log(`Received: ${message}`);
+            log(`Received: ${JSON.stringify(message)}`);
         });
 
         connection.onclose(error => {
@@ -122,11 +138,28 @@
 
                 log(`Connection opened: ${connection.connectionId}`);
 
+                try {
+                    await connection.invoke("JoinRoom", roomId);
+                    log(`Joined room ${roomId}`);
+                } catch (error) {
+                    log(`Join failed: ${error.message}`);
+                }
                 messageInput.focus();
             } catch (error) {
                 setConnected(false);
 
                 log(`Connection failed: ${error}`);
+            }
+        });
+
+        switchButton.addEventListener("click", async () => {
+            try {
+                await connection.invoke("JoinRoom", 3);
+                roomId = 3;
+                log("Switched from room 2 to room 3");
+                switchButton.disabled = true;
+            } catch (error) {
+                log(`Switch failed: ${error.message}`);
             }
         });
 
@@ -143,29 +176,40 @@
             }
 
             try {
-                await connection.invoke("SendMessage", message);
+                // await connection.invoke("SendMessage", roomId, message);
+                const recipientText = recipientInput.value.trim();
 
-                log(`Sent: ${message}`);
+                if (recipientText === "") {
+                    await connection.invoke("SendMessage", roomId, message);
+                    log(`Sent to room ${roomId}: ${message}`);
+                } else {
+                    const recipientId = Number(recipientText);
+
+                    if (!Number.isInteger(recipientId) || recipientId <= 0) {
+                        log("Recipient ID must be a positive integer");
+                        return;
+                    }
+
+                    await connection.invoke("SendPrivateMessage", roomId, message, recipientId);
+
+                    log(`Sent privately to user ${recipientId}: ${message}`);
+                }
 
                 messageInput.value = "";
                 messageInput.focus();
+
             } catch (error) {
                 log(`Send failed: ${error}`);
             }
         }
 
-        sendButton.addEventListener(
-            "click",
-            sendMessage
-        );
+        sendButton.addEventListener("click", sendMessage);
 
-        messageInput.addEventListener(
-            "keydown",
-            event => {
-                if (event.key === "Enter") {
-                    sendMessage();
-                }
+        messageInput.addEventListener("keydown", event => {
+            if (event.key === "Enter") {
+                sendMessage();
             }
+        }
         );
 
         disconnectButton.addEventListener("click", async () => {
