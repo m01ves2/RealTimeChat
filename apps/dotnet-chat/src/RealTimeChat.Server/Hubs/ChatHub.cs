@@ -118,6 +118,14 @@ namespace RealTimeChat.Server.Hubs
                 throw new HubException("Join the room before sending a message.");
         }
 
+        public Task NotifyTyping(int roomId)
+        {
+            EnsureJoinedRoom(roomId);
+
+            return Clients.OthersInGroup($"room:{roomId}")
+                .SendAsync("UserTyping", roomId, GetCurrentUserId(), GetCurrentUserName());
+        }
+
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
             int? roomId = _roomPresence.Leave(Context.ConnectionId);

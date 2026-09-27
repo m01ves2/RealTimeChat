@@ -47,12 +47,16 @@ else {
         }
     </ul>
 
+    @if (_typingUserName is not null) {
+        <p role="status">@_typingUserName is typing...</p>
+    }
+
     <form @onsubmit="SendAsync" @onsubmit:preventDefault>
         <label for="recipient-id">Recipient ID (optional)</label>
         <input id="recipient-id" type="number" min="1" @bind="_recipientId" />
 
         <label for="message-text">Message</label>
-        <textarea id="message-text" rows="3" maxlength="500" @bind="_draft" @bind:event="oninput"></textarea>
+        <textarea id="message-text" rows="3" maxlength="500" @bind="_draft" @bind:event="oninput" @bind:after="NotifyTypingAsync"></textarea>
 
         <button type="submit" disabled="@(_hubConnection?.State != HubConnectionState.Connected || string.IsNullOrWhiteSpace(_draft))">
             Send
@@ -80,11 +84,18 @@ else {
     private string? _sendError;
 
     private OnlineUserResponse[] _onlineUsers = [];
+    private DateTimeOffset _lastTypingNotificationAt = DateTimeOffset.MinValue;
+
+    private string? _typingUserName;
+    private int _typingSequence;
 
     protected override async Task OnParametersSetAsync()
     {
         _room = await Http.GetFromJsonAsync<RoomResponse>($"api/rooms/{RoomId}");
         _messages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{RoomId}/messages") ?? [];
+
+        _typingSequence++;
+        _typingUserName = null;
 
         try {
             await EnsureConnectedAsync();
@@ -126,6 +137,9 @@ else {
 
         // Handler for closed connection
         connection.Closed += _ => SetConnectionStatusAsync("Disconnected");
+
+        // Handle text typing
+        connection.On<int, int, string>("UserTyping", HandleUserTypingAsync);
     }
 
     private async Task HandleReceivedMessageAsync(ChatMessageResponse message)
@@ -229,10 +243,67 @@ else {
         }
     }
 
+    private async Task NotifyTypingAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft) || _hubConnection?.State != HubConnectionState.Connected)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (now - _lastTypingNotificationAt < TimeSpan.FromSeconds(1))
+            return;
+
+        _lastTypingNotificationAt = now;
+
+        try {
+            await _hubConnection.InvokeAsync("NotifyTyping", RoomId);
+        }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"Could not send typing status: {ex.Message}");
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_hubConnection is not null) {
             await _hubConnection.DisposeAsync();
+        }
+    }
+
+    private async Task HandleUserTypingAsync(int roomId, int userId, string userName)
+    {
+        var sequence = 0;
+
+        await InvokeAsync(() =>
+        {
+            if (roomId != RoomId)
+                return;
+
+            _typingUserName = userName;
+            sequence = ++_typingSequence;
+            StateHasChanged();
+        });
+
+        if (sequence != 0)
+            _ = HideTypingAfterDelayAsync(roomId, sequence);
+    }
+
+    private async Task HideTypingAfterDelayAsync(int roomId, int sequence)
+    {
+        try {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            await InvokeAsync(() =>
+            {
+                if (roomId != RoomId || sequence != _typingSequence)
+                    return;
+
+                _typingUserName = null;
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"Could not clear typing status: {ex.Message}");
         }
     }
 }
