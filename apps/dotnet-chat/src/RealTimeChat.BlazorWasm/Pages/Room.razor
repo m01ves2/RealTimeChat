@@ -4,7 +4,9 @@
 @using RealTimeChat.Contracts.Messages
 @using RealTimeChat.Contracts.Rooms
 @using RealTimeChat.Contracts.Users
+@using Microsoft.JSInterop
 
+@inject IJSRuntime JS
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
 
@@ -28,15 +30,15 @@
             <section class="room-conversation">
                 <h2 id="messages-title">Messages</h2>
 
-                <div class="message-scroll">
-                @if (_messages.Length == 0) {
-                    <p>No messages yet.</p>
-                }
-                else {
-                    <ul class="message-list">
-                        @foreach (var message in _messages) {
+                <div class="message-scroll" @ref="_messageScroll">
+                    @if (_messages.Length == 0) {
+                        <p>No messages yet.</p>
+                    }
+                    else {
+                        <ul class="message-list">
+                            @foreach (var message in _messages) {
                                 <li class="@(message.RecipientId is null ? "message" : "message message-private")">
-                                <div class="message-meta">
+                                    <div class="message-meta">
                                         <strong>
                                             <button type="button" class="recipient-link"
                                                     @onclick="() => SelectRecipient(message.AuthorId, message.AuthorName)">
@@ -44,21 +46,21 @@
                                             </button>
                                         </strong>
 
-                                    @if (message.RecipientName is not null) {
+                                        @if (message.RecipientName is not null) {
                                             <span class="private-recipient">→ @message.RecipientName · Private</span>
-                                    }
+                                        }
 
-                                    <time datetime="@message.CreatedAt.ToString("O")">
-                                        @message.CreatedAt.ToLocalTime().ToString("HH:mm")
-                                    </time>
-                                </div>
+                                        <time datetime="@message.CreatedAt.ToString("O")">
+                                            @message.CreatedAt.ToLocalTime().ToString("HH:mm")
+                                        </time>
+                                    </div>
 
-                                <p class="message-text">@message.Text</p>
-                            </li>
-                        }
-                    </ul>
-                }
-            </div>
+                                    <p class="message-text">@message.Text</p>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
             </section>
 
             <aside class="room-users">
@@ -131,12 +133,18 @@
     private string? _typingUserName;
     private int _typingSequence;
 
+    // message scrolling
+    private ElementReference _messageScroll;
+    private bool _scrollToLatest;
+
+
     protected override async Task OnParametersSetAsync()
     {
         SendToEveryone();
 
         _room = await Http.GetFromJsonAsync<RoomResponse>($"api/rooms/{RoomId}");
         _messages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{RoomId}/messages") ?? [];
+        _scrollToLatest = true;
 
         _typingSequence++;
         _typingUserName = null;
@@ -149,6 +157,15 @@
         catch (Exception ex) {
             _connectionStatus = $"Connection error: {ex.Message}";
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_scrollToLatest || _room is null)
+            return;
+
+        _scrollToLatest = false;
+        await JS.InvokeVoidAsync("scrollChatToBottom", _messageScroll);
     }
 
     private async Task EnsureConnectedAsync()
@@ -191,13 +208,18 @@
 
     private async Task HandleReceivedMessageAsync(ChatMessageResponse message)
     {
-        await InvokeAsync(() =>
+        await InvokeAsync(async () =>
         {
-            if (message.RoomId != RoomId ||
-                _messages.Any(m => m.Id == message.Id))
+            if (message.RoomId != RoomId || _messages.Any(m => m.Id == message.Id))
+                return;
+
+            var wasAtBottom = await JS.InvokeAsync<bool>("isChatAtBottom", _messageScroll);
+
+            if (message.RoomId != RoomId || _messages.Any(m => m.Id == message.Id)) //second check bec a new message could be added while JS invoking
                 return;
 
             _messages = [.. _messages, message];
+            _scrollToLatest = wasAtBottom;
             StateHasChanged();
         });
     }
@@ -233,6 +255,8 @@
             var recentMessages =
                 await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{roomId}/messages") ?? [];
 
+            var wasAtBottom = await JS.InvokeAsync<bool>("isChatAtBottom", _messageScroll);
+
             await InvokeAsync(() =>
             {
                 if (RoomId != roomId)
@@ -244,6 +268,7 @@
                     .OrderBy(message => message.CreatedAt)
                     .ThenBy(message => message.Id)
                     .ToArray();
+                _scrollToLatest = wasAtBottom;
 
                 _connectionStatus = "Connected to the room";
                 StateHasChanged();

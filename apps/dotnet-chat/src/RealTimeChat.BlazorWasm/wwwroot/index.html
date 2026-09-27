@@ -27,6 +27,11 @@
         <a href="." class="reload">Reload</a>
         <span class="dismiss">🗙</span>
     </div>
+    <script>
+        window.scrollChatToBottom = element => element.scrollTop = element.scrollHeight;
+
+        window.isChatAtBottom = element => element.scrollHeight - element.scrollTop - element.clientHeight <= 20;
+    </script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
 </body>
 
