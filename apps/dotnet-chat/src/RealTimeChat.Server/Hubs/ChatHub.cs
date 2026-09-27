@@ -10,28 +10,70 @@ namespace RealTimeChat.Server.Hubs
     {
         private const string CurrentRoomKey = "CurrentRoomId";
         private readonly ChatService _chatService;
+        private readonly RoomPresence _roomPresence;
 
-        public ChatHub(ChatService chatService)
+        public ChatHub(ChatService chatService, RoomPresence roomPresence)
         {
             _chatService = chatService;
+            _roomPresence = roomPresence;
         }
 
         public async Task JoinRoom(int roomId)
         {
             await _chatService.GetRoomAsync(roomId, Context.ConnectionAborted);
 
-            // Context.Items - connection data storage 
-            if (Context.Items.TryGetValue(CurrentRoomKey, out var value) && value is int previousRoomId) {
-                if (previousRoomId == roomId) {
-                    return;
-                }
+            var previousRoomId = GetCurrentRoomId();
+            if (previousRoomId == roomId)
+                return;
 
-                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room:{previousRoomId}", Context.ConnectionAborted);
+            var userId = GetCurrentUserId();
+            var userName = GetCurrentUserName();
+
+            await MoveConnectionToRoomGroupAsync(previousRoomId, roomId);
+
+            _roomPresence.Join(Context.ConnectionId, roomId, userId, userName);
+            Context.Items[CurrentRoomKey] = roomId;
+
+            await PublishRoomChangeAsync(previousRoomId, roomId);
+        }
+
+        private int? GetCurrentRoomId()
+        {
+            return Context.Items.TryGetValue(CurrentRoomKey, out var value)
+                && value is int roomId
+                    ? roomId
+                    : null;
+        }
+
+        private int GetCurrentUserId()
+        {
+            if (!int.TryParse(Context.UserIdentifier, out var userId))
+                throw new HubException("User ID is unavailable.");
+
+            return userId;
+        }
+
+        private string GetCurrentUserName()
+        {
+            return Context.User?.Identity?.Name
+                ?? throw new HubException("User name is unavailable.");
+        }
+
+        private async Task MoveConnectionToRoomGroupAsync(int? previousRoomId, int roomId)
+        {
+            if (previousRoomId is int oldRoomId) {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room:{oldRoomId}", Context.ConnectionAborted);
             }
 
-            await Groups.AddToGroupAsync( Context.ConnectionId, $"room:{roomId}", Context.ConnectionAborted);
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"room:{roomId}", Context.ConnectionAborted);
+        }
 
-            Context.Items[CurrentRoomKey] = roomId;
+        private async Task PublishRoomChangeAsync(int? previousRoomId, int roomId)
+        {
+            if (previousRoomId is int oldRoomId)
+                await PublishOnlineUsersAsync(oldRoomId);
+
+            await PublishOnlineUsersAsync(roomId);
         }
 
         public async Task SendMessage(int roomId, string text)
@@ -39,6 +81,11 @@ namespace RealTimeChat.Server.Hubs
             var message = await SaveMessageAsync(roomId, text, recipientId: null);
 
             await Clients.Group($"room:{roomId}").SendAsync("ReceiveMessage", message);
+        }
+
+        private Task PublishOnlineUsersAsync(int roomId)
+        {
+            return Clients.Group($"room:{roomId}").SendAsync("OnlineUsersChanged", roomId, _roomPresence.GetUsers(roomId));
         }
 
         public async Task SendPrivateMessage(int roomId, string text, int recipientId)
@@ -50,28 +97,44 @@ namespace RealTimeChat.Server.Hubs
             await Clients.Users(userIds).SendAsync("ReceiveMessage", message);
         }
 
-        public async Task<ChatMessageInfo> SaveMessageAsync(int roomId, string text, int? recipientId)
+        private async Task<ChatMessageInfo> SaveMessageAsync(int roomId, string text, int? recipientId)
         {
-            if (!int.TryParse(Context.UserIdentifier, out var authorId)) { // Context.UserIdentifier - userId with this connection Context.ConnectionId
-                throw new HubException("User ID is unavailable.");
-            }
-
-            if (!Context.Items.TryGetValue(CurrentRoomKey, out var value)
-                || value is not int currentRoomId
-                || currentRoomId != roomId) {
-                throw new HubException("Join the room before sending a message.");
-            }
+            var authorId = GetCurrentUserId();
+            EnsureJoinedRoom(roomId);
 
             await _chatService.GetRoomAsync(roomId, Context.ConnectionAborted);
 
-            var message = await _chatService.SendMessageAsync(
+            return await _chatService.SendMessageAsync(
                 roomId,
                 authorId,
                 text,
                 recipientId,
                 Context.ConnectionAborted);
-            
-            return message;
+        }
+
+        private void EnsureJoinedRoom(int roomId)
+        {
+            if (GetCurrentRoomId() != roomId)
+                throw new HubException("Join the room before sending a message.");
+        }
+
+        public Task NotifyTyping(int roomId)
+        {
+            EnsureJoinedRoom(roomId);
+
+            return Clients.OthersInGroup($"room:{roomId}")
+                .SendAsync("UserTyping", roomId, GetCurrentUserId(), GetCurrentUserName());
+        }
+
+        public override async Task OnDisconnectedAsync(Exception? exception)
+        {
+            int? roomId = _roomPresence.Leave(Context.ConnectionId);
+
+            if (roomId is int id) {
+                await PublishOnlineUsersAsync(id);
+            }
+
+            await base.OnDisconnectedAsync(exception);
         }
     }
 }
