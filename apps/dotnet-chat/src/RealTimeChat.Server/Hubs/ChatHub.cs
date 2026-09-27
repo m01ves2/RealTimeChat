@@ -10,28 +10,51 @@ namespace RealTimeChat.Server.Hubs
     {
         private const string CurrentRoomKey = "CurrentRoomId";
         private readonly ChatService _chatService;
+        private readonly RoomPresence _roomPresence;
 
-        public ChatHub(ChatService chatService)
+        public ChatHub(ChatService chatService, RoomPresence roomPresence)
         {
             _chatService = chatService;
+            _roomPresence = roomPresence;
         }
 
         public async Task JoinRoom(int roomId)
         {
             await _chatService.GetRoomAsync(roomId, Context.ConnectionAborted);
 
-            // Context.Items - connection data storage 
-            if (Context.Items.TryGetValue(CurrentRoomKey, out var value) && value is int previousRoomId) {
-                if (previousRoomId == roomId) {
-                    return;
-                }
+            if (!int.TryParse(Context.UserIdentifier, out var userId))
+                throw new HubException("User ID is unavailable.");
 
-                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room:{previousRoomId}", Context.ConnectionAborted);
+            var userName = Context.User?.Identity?.Name
+                ?? throw new HubException("User name is unavailable.");
+
+            int? previousRoomId =  Context.Items.TryGetValue(CurrentRoomKey, out var value) && value is int id
+                    ? id
+                    : null;
+
+            if (previousRoomId == roomId)
+                return;
+
+            if (previousRoomId is int oldRoomId) {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room:{oldRoomId}", Context.ConnectionAborted);
             }
 
-            await Groups.AddToGroupAsync( Context.ConnectionId, $"room:{roomId}", Context.ConnectionAborted);
+            await Groups.AddToGroupAsync(
+                Context.ConnectionId,
+                $"room:{roomId}",
+                Context.ConnectionAborted);
 
+            // Join обновляет существующую запись по ConnectionId.
+            _roomPresence.Join(Context.ConnectionId, roomId, userId, userName);
             Context.Items[CurrentRoomKey] = roomId;
+
+            if (previousRoomId is int oldRoom) {
+                await Clients.Group($"room:{oldRoom}")
+                    .SendAsync("OnlineUsersChanged", oldRoom, _roomPresence.GetUsers(oldRoom));
+            }
+
+            await Clients.Group($"room:{roomId}")
+                .SendAsync("OnlineUsersChanged", roomId, _roomPresence.GetUsers(roomId));
         }
 
         public async Task SendMessage(int roomId, string text)
@@ -39,6 +62,13 @@ namespace RealTimeChat.Server.Hubs
             var message = await SaveMessageAsync(roomId, text, recipientId: null);
 
             await Clients.Group($"room:{roomId}").SendAsync("ReceiveMessage", message);
+        }
+
+        public async Task GetUsers(int roomId)
+        {
+            var onlineUsers = _roomPresence.GetUsers(roomId);
+
+            await Clients.Group($"room:{roomId}").SendAsync("OnlineUsersChanged", roomId, onlineUsers);
         }
 
         public async Task SendPrivateMessage(int roomId, string text, int recipientId)
@@ -72,6 +102,17 @@ namespace RealTimeChat.Server.Hubs
                 Context.ConnectionAborted);
             
             return message;
+        }
+
+        public override async Task OnDisconnectedAsync(Exception? exception)
+        {
+            int? roomId = _roomPresence.Leave(Context.ConnectionId);
+
+            if (roomId is int id) {
+                await Clients.Group($"room:{id}").SendAsync("OnlineUsersChanged", id, _roomPresence.GetUsers(id));
+            }
+
+            await base.OnDisconnectedAsync(exception);
         }
     }
 }

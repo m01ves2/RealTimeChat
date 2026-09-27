@@ -1,8 +1,9 @@
 ﻿@page "/rooms/{RoomId:int}"
 @using System.Net.Http.Json
+@using Microsoft.AspNetCore.SignalR.Client
 @using RealTimeChat.Contracts.Messages
 @using RealTimeChat.Contracts.Rooms
-@using Microsoft.AspNetCore.SignalR.Client
+@using RealTimeChat.Contracts.Users
 
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
@@ -39,6 +40,13 @@ else {
         </ul>
     }
 
+    <h2>Online users</h2>
+    <ul>
+        @foreach (var user in _onlineUsers) {
+            <li>@user.UserName</li>
+        }
+    </ul>
+
     <form @onsubmit="SendAsync" @onsubmit:preventDefault>
         <label for="recipient-id">Recipient ID (optional)</label>
         <input id="recipient-id" type="number" min="1" @bind="_recipientId" />
@@ -70,6 +78,8 @@ else {
 
     private int? _recipientId;
     private string? _sendError;
+
+    private OnlineUserResponse[] _onlineUsers = [];
 
     protected override async Task OnParametersSetAsync()
     {
@@ -116,6 +126,18 @@ else {
                 }
 
                 _messages = [.. _messages, message];
+                StateHasChanged();
+            });
+        });
+
+        connection.On<int, OnlineUserResponse[]>("OnlineUsersChanged", async (roomId, users) =>
+        {
+            await InvokeAsync(() =>
+            {
+                if (roomId != RoomId)
+                    return;
+
+                _onlineUsers = users;
                 StateHasChanged();
             });
         });
