@@ -1,0 +1,228 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>SignalR Test Client</title>
+
+    <style>
+        body {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            font-family: sans-serif;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        #messageInput {
+            flex-grow: 1;
+        }
+
+        #log {
+            min-height: 300px;
+            padding: 16px;
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>SignalR Test Client</h1>
+
+    <p>
+        Connection:
+        <strong id="connectionState">Disconnected</strong>
+    </p>
+
+    <div class="controls">
+        <button id="connectButton">
+            Connect
+        </button>
+
+        <button id="disconnectButton" disabled>
+            Disconnect
+        </button>
+        <button id="switchButton" disabled>Switch to room 3</button>
+    </div>
+
+    <div class="controls">
+        <input id="messageInput"
+               type="text"
+               placeholder="Enter a message"
+               disabled>
+
+        <button id="sendButton" disabled>
+            Send
+        </button>
+    </div>
+
+    <input id="recipientInput"
+           type="number"
+           min="1"
+           placeholder="Recipient ID (empty = everyone)"
+           disabled>
+
+    <pre id="log"></pre>
+
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@10.0.11/dist/browser/signalr.min.js"></script>
+    <script>
+        const connectionState = document.getElementById("connectionState");
+        const connectButton = document.getElementById("connectButton");
+        const disconnectButton = document.getElementById("disconnectButton");
+        const messageInput = document.getElementById("messageInput");
+        const sendButton = document.getElementById("sendButton");
+        const logElement = document.getElementById("log");
+        const switchButton = document.getElementById("switchButton");
+        const recipientInput = document.getElementById("recipientInput");
+
+        let roomId = 2;
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chat")
+            .build();
+
+        function log(message) {
+            const time = new Date().toLocaleTimeString();
+
+            logElement.textContent += `[${time}] ${message}\n`;
+        }
+
+        function setConnected(isConnected) {
+            connectionState.textContent =
+                isConnected ? "Connected" : "Disconnected";
+
+            connectButton.disabled = isConnected;
+            disconnectButton.disabled = !isConnected;
+            messageInput.disabled = !isConnected;
+            sendButton.disabled = !isConnected;
+            switchButton.disabled = !isConnected;
+            recipientInput.disabled = !isConnected;
+        }
+
+        // connection.on("ReceiveMessage", message => {
+        //     log(`Received: ${message}`);
+        // });
+        connection.on("ReceiveMessage", message => {
+            log(`Received: ${JSON.stringify(message)}`);
+        });
+
+        connection.onclose(error => {
+            setConnected(false);
+
+            if (error) {
+                log(`Connection closed with error: ${error}`);
+            } else {
+                log("Connection closed");
+            }
+        });
+
+        connectButton.addEventListener("click", async () => {
+            connectButton.disabled = true;
+
+            log("Connecting to /chat");
+
+            try {
+                await connection.start();
+
+                setConnected(true);
+
+                log(`Connection opened: ${connection.connectionId}`);
+
+                try {
+                    await connection.invoke("JoinRoom", roomId);
+                    log(`Joined room ${roomId}`);
+                } catch (error) {
+                    log(`Join failed: ${error.message}`);
+                }
+                messageInput.focus();
+            } catch (error) {
+                setConnected(false);
+
+                log(`Connection failed: ${error}`);
+            }
+        });
+
+        switchButton.addEventListener("click", async () => {
+            try {
+                await connection.invoke("JoinRoom", 3);
+                roomId = 3;
+                log("Switched from room 2 to room 3");
+                switchButton.disabled = true;
+            } catch (error) {
+                log(`Switch failed: ${error.message}`);
+            }
+        });
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+
+            if (message.length === 0) {
+                return;
+            }
+
+            if (connection.state !== signalR.HubConnectionState.Connected) {
+                log("Cannot send: connection is not open");
+                return;
+            }
+
+            try {
+                // await connection.invoke("SendMessage", roomId, message);
+                const recipientText = recipientInput.value.trim();
+
+                if (recipientText === "") {
+                    await connection.invoke("SendMessage", roomId, message);
+                    log(`Sent to room ${roomId}: ${message}`);
+                } else {
+                    const recipientId = Number(recipientText);
+
+                    if (!Number.isInteger(recipientId) || recipientId <= 0) {
+                        log("Recipient ID must be a positive integer");
+                        return;
+                    }
+
+                    await connection.invoke("SendPrivateMessage", roomId, message, recipientId);
+
+                    log(`Sent privately to user ${recipientId}: ${message}`);
+                }
+
+                messageInput.value = "";
+                messageInput.focus();
+
+            } catch (error) {
+                log(`Send failed: ${error}`);
+            }
+        }
+
+        sendButton.addEventListener("click", sendMessage);
+
+        messageInput.addEventListener("keydown", event => {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        }
+        );
+
+        disconnectButton.addEventListener("click", async () => {
+            disconnectButton.disabled = true;
+
+            log("Disconnecting");
+
+            try {
+                await connection.stop();
+            } catch (error) {
+                log(`Disconnect failed: ${error}`);
+            }
+        });
+    </script>
+</body>
+</html>
