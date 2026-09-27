@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\RealTimeChat.Contracts\RealTimeChat.Contracts.csproj" />
+	<ProjectReference Include="..\RealTimeChat.Contracts\RealTimeChat.Contracts.csproj" />
   </ItemGroup>
 
 </Project>
