@@ -77,35 +77,83 @@ else {
         _messages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{RoomId}/messages") ?? [];
 
         try {
-            if (_hubConnection is null) {
-                _hubConnection = new HubConnectionBuilder()
-                    .WithUrl(Navigation.ToAbsoluteUri("chat"))
-                    .Build();
-
-                _hubConnection.On<ChatMessageResponse>("ReceiveMessage", async message =>
-                {
-                    await InvokeAsync(() =>
-                    {
-                        if (message.RoomId != RoomId ||
-                            _messages.Any(m => m.Id == message.Id)) {
-                            return;
-                        }
-
-                        _messages = [.. _messages, message];
-                        StateHasChanged();
-                    });
-                });
-
-                await _hubConnection.StartAsync();
-            }
-
-            await _hubConnection.InvokeAsync("JoinRoom", RoomId);
+            await EnsureConnectedAsync();
+            await _hubConnection!.InvokeAsync("JoinRoom", RoomId);
             _connectionStatus = "Connected to the room";
-
         }
         catch (Exception ex) {
-            _connectionStatus = $"Connection Error: {ex.Message}";
+            _connectionStatus = $"Connection error: {ex.Message}";
         }
+    }
+
+    private async Task EnsureConnectedAsync()
+    {
+        if (_hubConnection is null) {
+            var connection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("chat"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection = connection;
+            RegisterHubHandlers(connection);
+        }
+
+        if (_hubConnection.State == HubConnectionState.Disconnected) {
+            await _hubConnection.StartAsync();
+        }
+    }
+
+    private void RegisterHubHandlers(HubConnection connection)
+    {
+        // handler for received message from Hub
+        connection.On<ChatMessageResponse>("ReceiveMessage", async message =>
+        {
+            await InvokeAsync(() =>
+            {
+                if (message.RoomId != RoomId ||
+                    _messages.Any(m => m.Id == message.Id)) {
+                    return;
+                }
+
+                _messages = [.. _messages, message];
+                StateHasChanged();
+            });
+        });
+
+        // Handler for lost connection. Trying to reconnect
+        connection.Reconnecting += (_) => InvokeAsync(() =>
+        {
+            _connectionStatus = "Reconnecting...";
+            StateHasChanged();
+        });
+
+        //Handler for Joining Room after being reconnected
+        connection.Reconnected += async (_) =>
+        {
+            try {
+                await connection.InvokeAsync("JoinRoom", RoomId);
+
+                await InvokeAsync(() =>
+                {
+                    _connectionStatus = "Connected to the room";
+                    StateHasChanged();
+                });
+            }
+            catch (Exception ex) {
+                await InvokeAsync(() =>
+                {
+                    _connectionStatus = $"Could not rejoin room: {ex.Message}";
+                    StateHasChanged();
+                });
+            }
+        };
+
+        // Handler for closed connection
+        connection.Closed += _ => InvokeAsync(() =>
+        {
+            _connectionStatus = "Disconnected";
+            StateHasChanged();
+        });
     }
 
     private async Task SendAsync()
