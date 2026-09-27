@@ -130,13 +130,26 @@ else {
         //Handler for Joining Room after being reconnected
         connection.Reconnected += async (_) =>
         {
+            var roomId = RoomId;
+
             try {
                 await connection.InvokeAsync("JoinRoom", RoomId);
 
+                var recentMessages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{roomId}/messages") ?? [];
+                
                 await InvokeAsync(() =>
                 {
-                    _connectionStatus = "Connected to the room";
-                    StateHasChanged();
+                    if (RoomId != roomId)
+                        return;
+
+                    _messages = _messages.Concat(recentMessages)
+                                    .DistinctBy(message => message.Id)
+                                    .OrderBy(message => message.CreatedAt)
+                                    .ThenBy(message => message.Id)
+                                    .ToArray();
+
+                                    _connectionStatus = "Connected to the room";
+                                    StateHasChanged();
                 });
             }
             catch (Exception ex) {
