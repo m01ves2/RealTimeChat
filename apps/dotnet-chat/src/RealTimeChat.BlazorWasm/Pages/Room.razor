@@ -179,6 +179,9 @@
         // Handler for lost connection. Trying to reconnect
         connection.Reconnecting += _ => SetConnectionStatusAsync("Reconnecting...");
 
+        // Handler for reconnected state - Join Room and Get recent messages
+        connection.Reconnected += _ => RestoreRoomAfterReconnectAsync(connection);
+
         // Handler for closed connection
         connection.Closed += _ => SetConnectionStatusAsync("Disconnected");
 
@@ -211,6 +214,15 @@
         });
     }
 
+    private Task SetConnectionStatusAsync(string status)
+    {
+        return InvokeAsync(() =>
+        {
+            _connectionStatus = status;
+            StateHasChanged();
+        });
+    }
+
     private async Task RestoreRoomAfterReconnectAsync(HubConnection connection)
     {
         var roomId = RoomId;
@@ -219,8 +231,7 @@
             await connection.InvokeAsync("JoinRoom", roomId);
 
             var recentMessages =
-                await Http.GetFromJsonAsync<ChatMessageResponse[]>(
-                    $"api/rooms/{roomId}/messages") ?? [];
+                await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{roomId}/messages") ?? [];
 
             await InvokeAsync(() =>
             {
@@ -248,15 +259,6 @@
                 StateHasChanged();
             });
         }
-    }
-
-    private Task SetConnectionStatusAsync(string status)
-    {
-        return InvokeAsync(() =>
-        {
-            _connectionStatus = status;
-            StateHasChanged();
-        });
     }
 
     private async Task SendAsync()
