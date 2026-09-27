@@ -116,77 +116,87 @@ else {
     private void RegisterHubHandlers(HubConnection connection)
     {
         // handler for received message from Hub
-        connection.On<ChatMessageResponse>("ReceiveMessage", async message =>
-        {
-            await InvokeAsync(() =>
-            {
-                if (message.RoomId != RoomId ||
-                    _messages.Any(m => m.Id == message.Id)) {
-                    return;
-                }
+        connection.On<ChatMessageResponse>("ReceiveMessage", HandleReceivedMessageAsync);
 
-                _messages = [.. _messages, message];
-                StateHasChanged();
-            });
-        });
-
-        connection.On<int, OnlineUserResponse[]>("OnlineUsersChanged", async (roomId, users) =>
-        {
-            await InvokeAsync(() =>
-            {
-                if (roomId != RoomId)
-                    return;
-
-                _onlineUsers = users;
-                StateHasChanged();
-            });
-        });
+        // handler for user list changed
+        connection.On<int, OnlineUserResponse[]>("OnlineUsersChanged", HandleOnlineUsersChangedAsync);
 
         // Handler for lost connection. Trying to reconnect
-        connection.Reconnecting += (_) => InvokeAsync(() =>
-        {
-            _connectionStatus = "Reconnecting...";
-            StateHasChanged();
-        });
-
-        //Handler for Joining Room after being reconnected
-        connection.Reconnected += async (_) =>
-        {
-            var roomId = RoomId;
-
-            try {
-                await connection.InvokeAsync("JoinRoom", RoomId);
-
-                var recentMessages = await Http.GetFromJsonAsync<ChatMessageResponse[]>($"api/rooms/{roomId}/messages") ?? [];
-                
-                await InvokeAsync(() =>
-                {
-                    if (RoomId != roomId)
-                        return;
-
-                    _messages = _messages.Concat(recentMessages)
-                                    .DistinctBy(message => message.Id)
-                                    .OrderBy(message => message.CreatedAt)
-                                    .ThenBy(message => message.Id)
-                                    .ToArray();
-
-                                    _connectionStatus = "Connected to the room";
-                                    StateHasChanged();
-                });
-            }
-            catch (Exception ex) {
-                await InvokeAsync(() =>
-                {
-                    _connectionStatus = $"Could not rejoin room: {ex.Message}";
-                    StateHasChanged();
-                });
-            }
-        };
+        connection.Reconnecting += _ => SetConnectionStatusAsync("Reconnecting...");
 
         // Handler for closed connection
-        connection.Closed += _ => InvokeAsync(() =>
+        connection.Closed += _ => SetConnectionStatusAsync("Disconnected");
+    }
+
+    private async Task HandleReceivedMessageAsync(ChatMessageResponse message)
+    {
+        await InvokeAsync(() =>
         {
-            _connectionStatus = "Disconnected";
+            if (message.RoomId != RoomId ||
+                _messages.Any(m => m.Id == message.Id))
+                return;
+
+            _messages = [.. _messages, message];
+            StateHasChanged();
+        });
+    }
+
+    private async Task HandleOnlineUsersChangedAsync(int roomId, OnlineUserResponse[] users)
+    {
+        await InvokeAsync(() =>
+        {
+            if (roomId != RoomId)
+                return;
+
+            _onlineUsers = users;
+            StateHasChanged();
+        });
+    }
+
+    private async Task RestoreRoomAfterReconnectAsync(HubConnection connection)
+    {
+        var roomId = RoomId;
+
+        try {
+            await connection.InvokeAsync("JoinRoom", roomId);
+
+            var recentMessages =
+                await Http.GetFromJsonAsync<ChatMessageResponse[]>(
+                    $"api/rooms/{roomId}/messages") ?? [];
+
+            await InvokeAsync(() =>
+            {
+                if (RoomId != roomId)
+                    return;
+
+                _messages = _messages
+                    .Concat(recentMessages)
+                    .DistinctBy(message => message.Id)
+                    .OrderBy(message => message.CreatedAt)
+                    .ThenBy(message => message.Id)
+                    .ToArray();
+
+                _connectionStatus = "Connected to the room";
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex) {
+            await InvokeAsync(() =>
+            {
+                if (RoomId != roomId)
+                    return;
+
+                _connectionStatus = $"Could not rejoin room: {ex.Message}";
+                StateHasChanged();
+            });
+        }
+    }
+
+    private Task SetConnectionStatusAsync(string status)
+    {
+        return InvokeAsync(() =>
+        {
+            _connectionStatus = status;
             StateHasChanged();
         });
     }
@@ -195,32 +205,27 @@ else {
     {
         _sendError = null;
 
-        if (_hubConnection?.State != HubConnectionState.Connected) {
-            return;
-        }
-
         var text = _draft.Trim();
 
-        if (string.IsNullOrWhiteSpace(_draft))
+        if (text.Length is 0 or > 500 || _hubConnection?.State != HubConnectionState.Connected)
             return;
-
-        if (text.Length is 0 or > 500) {
-            return;
-        }
-
 
         try {
-            if (_recipientId is int recipientId) {
-                await _hubConnection.InvokeAsync("SendPrivateMessage", RoomId, text, recipientId);
-            }
-            else {
-                await _hubConnection.InvokeAsync("SendMessage", RoomId, text);
-            }
-
+            await SendMessageToHubAsync(_hubConnection, text);
             _draft = "";
         }
         catch (Exception ex) {
             _sendError = ex.Message;
+        }
+    }
+
+    private async Task SendMessageToHubAsync(HubConnection connection, string text)
+    {
+        if (_recipientId is int recipientId) {
+            await connection.InvokeAsync("SendPrivateMessage", RoomId, text, recipientId);
+        }
+        else {
+            await connection.InvokeAsync("SendMessage", RoomId, text);
         }
     }
 
