@@ -1,0 +1,28 @@
+﻿@page "/"
+@using RealTimeChat.Application.Models
+@using RealTimeChat.Application.Services
+@inject ChatService ChatService
+
+<PageTitle>Real-Time Chat</PageTitle>
+
+<h1>Real-Time Chat</h1>
+
+@if (_rooms is null) {
+    <p>Loading rooms...</p>
+}
+else {
+    <ul>
+        @foreach (var room in _rooms) {
+            <li>@room.Name</li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<RoomInfo>? _rooms;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _rooms = await ChatService.GetRoomsAsync(CancellationToken.None);
+    }
+}

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>06a74920-5fe1-4f90-a07b-7ef8f6d8e921</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RealTimeChat.Application\RealTimeChat.Application.csproj" />
+    <ProjectReference Include="..\RealTimeChat.Infrastructure\RealTimeChat.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
