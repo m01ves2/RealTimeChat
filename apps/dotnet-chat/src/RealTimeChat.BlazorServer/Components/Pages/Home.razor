@@ -7,6 +7,25 @@
 
 <h1>Real-Time Chat</h1>
 
+
+@* Вход обрабатывается обычным HTTP POST:
+   SignInManager выдаёт cookie через заголовок HTTP-ответа.
+   В интерактивном обработчике Blazor такой возможности нет.
+   
+   Для Blazor Server с cookie-аутентификацией это стандартный подход: вход и выход обрабатываются обычными HTTP-запросами, 
+   а сам чат работает через интерактивные серверные компоненты.*@
+<AuthorizeView>
+    <Authorized Context="auth">
+        <p>
+            Signed in as
+            <strong>@auth.User.Identity?.Name</strong>
+        </p>
+    </Authorized>
+    <NotAuthorized>
+        <a href="/login">Sign in</a>
+    </NotAuthorized>
+</AuthorizeView>
+
 @if (_rooms is null) {
     <p>Loading rooms...</p>
 }

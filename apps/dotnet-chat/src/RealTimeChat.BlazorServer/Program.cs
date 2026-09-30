@@ -15,6 +15,7 @@ builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddIdentityCookies();
 
 builder.Services.AddAuthorization();
+builder.Services.AddCascadingAuthenticationState(); //Подключаем передачу состояния аутентификации компонентам
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
