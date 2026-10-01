@@ -9,6 +9,8 @@ namespace RealTimeChat.BlazorServer
             services.AddSingleton<ChatNotifier>(); // Singleton нужен, чтобы компоненты разных пользователей подписывались на один объект.
                                                    // Scoped-сервис circuit был бы отдельным для каждой вкладки.
 
+            services.AddSingleton<RoomPresence>();
+
             return services;
         }
     }

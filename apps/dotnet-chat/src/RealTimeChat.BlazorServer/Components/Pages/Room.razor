@@ -12,12 +12,14 @@
 
 @attribute [Authorize]
 
-@implements IDisposable
+@* Уход из комнаты включает асинхронное уведомление остальных участников.*@
+@implements IAsyncDisposable 
 
 @inject IServiceScopeFactory ScopeFactory
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject ChatNotifier Notifier
+@inject RoomPresence Presence
 
 <a href="/">← Rooms</a>
 
@@ -26,6 +28,19 @@
 }
 else if (_room is not null) {
     <h1>@_room.Name</h1>
+
+    <h2>Online users (@_onlineUsers.Count)</h2>
+
+    <ul>
+        @foreach (var user in _onlineUsers) {
+            <li @key="user.Id">
+                @user.UserName
+                @if (user.Id == _userId) {
+                    <span> (you)</span>
+                }
+            </li>
+        }
+    </ul>
 
     @if (_messages.Count == 0) {
         <p>No messages yet.</p>
@@ -90,9 +105,19 @@ else if (_room is not null) {
 
     private bool _disposed;
 
+    private readonly Guid _participationId = Guid.NewGuid();
+
+    private IReadOnlyList<OnlineUser> _onlineUsers = [];
+
+    private int? _userId;
+    private string? _userName;
+    private bool _interactive;
+
     protected override void OnInitialized()
     {
         Notifier.MessageReceived += OnMessageReceivedAsync;
+
+        Presence.UsersChanged += OnUsersChangedAsync;
     }
 
 
@@ -104,9 +129,21 @@ else if (_room is not null) {
         _isLoading = true;
         _room = null;
         _messages = [];
+        _onlineUsers = [];
 
         _text = string.Empty;
         _sendError = null; //При переходе в другую комнату черновик и ошибка сбросятся.
+        _userId = null;
+        _userName = null;
+
+        // Если этот экземпляр компонента уже участвовал в комнате,
+        // снимаем прежнее участие перед загрузкой новой.
+        if (_interactive) {
+            await Presence.LeaveAsync(_participationId);
+
+            if (_disposed || version != _loadVersion)
+                return;
+        }
 
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync(); // AuthenticationStateProvider даёт пользователя текущего UI-сеанса. 
                                                                                          // Из его claim берём ID для фильтрации приватной истории.
@@ -121,6 +158,9 @@ else if (_room is not null) {
             Navigation.NavigateTo("/login", forceLoad: true);
             return;
         }
+
+        _userId = userId; // сохраним пользователя
+        _userName = authState.User.Identity!.Name ?? userId.ToString();
 
         try {
             // Эти строки создают отдельную область зависимостей
@@ -154,6 +194,8 @@ else if (_room is not null) {
                                 .ToArray();
 
             _isLoading = false;
+
+            await JoinPresenceAsync();
         }
         catch (NotFoundException) {
             if (version != _loadVersion)
@@ -256,14 +298,57 @@ else if (_room is not null) {
         });
     }
 
-    public void Dispose()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed)
+            return;
+
+        _interactive = true;
+
+        await JoinPresenceAsync();
+    }
+
+    private Task JoinPresenceAsync()
+    {
+        if (_disposed
+            || !_interactive
+            || _isLoading
+            || _room is null
+            || _userId is null
+            || _userName is null) {
+            return Task.CompletedTask;
+        }
+
+        return Presence.JoinAsync(
+            _participationId,
+            _room.Id,
+            _userId.Value,
+            _userName);
+    }
+
+    private Task OnUsersChangedAsync(int roomId)
+    {
+        return InvokeAsync(() =>
+        {
+            if (_disposed || roomId != RoomId)
+                return;
+
+            // Читаем актуальный список, а не старый снимок из уведомления.
+            _onlineUsers = Presence.GetUsers(roomId);
+
+            StateHasChanged();
+        });
+    }
+
+    public async ValueTask DisposeAsync()
     {
         _disposed = true;
-
-        // Делает незавершённые загрузки устаревшими.
         ++_loadVersion;
 
         Notifier.MessageReceived -= OnMessageReceivedAsync;
+        Presence.UsersChanged -= OnUsersChangedAsync;
+
+        await Presence.LeaveAsync(_participationId);
     }
 
 }
