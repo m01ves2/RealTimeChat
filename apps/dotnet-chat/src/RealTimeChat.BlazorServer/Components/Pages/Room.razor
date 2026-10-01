@@ -46,6 +46,28 @@ else if (_room is not null) {
                 </li>
             }
         </ul>
+
+        <form @onsubmit="SendAsync" @onsubmit:preventDefault>
+            @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
+            @bind:event="oninput" обновляет _text при вводе каждого символа. *@
+
+            <label for="message">Message</label>
+
+            <textarea id="message"
+                      @bind="_text"
+                      @bind:event="oninput"
+                      maxlength="500"
+                      disabled="@_isSending"></textarea>
+
+            <button type="submit"
+                    disabled="@(_isSending || string.IsNullOrWhiteSpace(_text))">
+                @(_isSending ? "Sending..." : "Send")
+            </button>
+        </form>
+
+        @if (_sendError is not null) {
+            <p role="alert">@_sendError</p>
+        }
     }
 }
 
@@ -58,6 +80,10 @@ else if (_room is not null) {
     private bool _isLoading = true;
     private int _loadVersion;
 
+    private string _text = string.Empty;
+    private string? _sendError;
+    private bool _isSending;
+
     protected override async Task OnParametersSetAsync()
     {
         var version = ++_loadVersion;
@@ -66,6 +92,9 @@ else if (_room is not null) {
         _isLoading = true;
         _room = null;
         _messages = [];
+
+        _text = string.Empty;
+        _sendError = null; //При переходе в другую комнату черновик и ошибка сбросятся.
 
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync(); // AuthenticationStateProvider даёт пользователя текущего UI-сеанса. 
                                                                                          // Из его claim берём ID для фильтрации приватной истории.
@@ -85,8 +114,13 @@ else if (_room is not null) {
             // Эти строки создают отдельную область зависимостей
             // Внутри неё DI создаёт ChatService, его репозитории и DbContext. 
             // При выходе из блока они освобождаются. Полученные RoomInfo и ChatMessageInfo остаются обычными данными, которые можно отображать.
-            await using var scope = ScopeFactory.CreateAsyncScope(); 
+            await using var scope = ScopeFactory.CreateAsyncScope(); // Scope — это область жизни объектов, которые создаёт DI-контейнер. 
+                                                                     // Мы создаём отдельный scope ради короткой жизни зависимостей операции с БД.
 
+            // В интерактивном Blazor Server стандартный scope живёт вместе с circuit — UI - сеансом вкладки. 
+            // Клик по кнопке не создаёт новый HTTP-запрос страницы и новую область зависимостей.
+
+            // Получить ChatService именно из этой новой области.
             var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
 
             var room = await chatService.GetRoomAsync(roomId, CancellationToken.None);
@@ -106,6 +140,79 @@ else if (_room is not null) {
                 return;
 
             Navigation.NavigateTo("/not-found", forceLoad: true);
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        // Защита от повторной отправки, пока предыдущая ещё выполняется.
+        if (_isSending || _isLoading || _room is null)
+            return;
+
+        var text = _text.Trim();
+
+        if (text.Length == 0)
+            return;
+
+        _sendError = null;
+
+        // Ограничение в HTML удобно для пользователя,
+        // но проверка на сервере тоже нужна.
+        if (text.Length > 500) {
+            _sendError = "Message cannot exceed 500 characters.";
+            return;
+        }
+
+        // Запоминаем комнату и версию загрузки до первого await.
+        var roomId = RoomId;
+        var version = _loadVersion;
+
+        _isSending = true;
+
+        try {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+
+            var userIdText = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (authState.User.Identity?.IsAuthenticated != true
+                || !int.TryParse(userIdText, out var userId)) {
+                Navigation.NavigateTo("/login", forceLoad: true);
+                return;
+            }
+
+            // Отдельный scope на всю операцию отправки.
+            await using var scope = ScopeFactory.CreateAsyncScope();
+
+            var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
+
+            // Сейчас SendMessageAsync сам не проверяет наличие комнаты.
+            await chatService.GetRoomAsync(roomId, CancellationToken.None);
+
+            var message = await chatService.SendMessageAsync(
+                roomId,
+                userId,
+                text,
+                recipientId: null, // общее сообщение
+                cancellationToken: CancellationToken.None);
+
+            // Если пользователь уже перешёл в другую комнату,
+            // результат отправки не добавляем в её историю.
+            if (version != _loadVersion)
+                return;
+
+            _messages = [.. _messages, message];
+            _text = string.Empty;
+        }
+        catch (ArgumentException ex) {
+            if (version == _loadVersion)
+                _sendError = ex.Message;
+        }
+        catch (NotFoundException) {
+            if (version == _loadVersion)
+                _sendError = "The room or user no longer exists.";
+        }
+        finally {
+            _isSending = false;
         }
     }
 }
