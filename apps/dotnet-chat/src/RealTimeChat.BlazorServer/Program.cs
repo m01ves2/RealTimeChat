@@ -14,6 +14,11 @@ builder.Services.AddInfrastructure(connectionString);
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddIdentityCookies();
 
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/login";
+});
+
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState(); //Подключаем передачу состояния аутентификации компонентам
 

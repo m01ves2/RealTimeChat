@@ -1,6 +1,10 @@
 ﻿@page "/"
 @using RealTimeChat.Application.Models
 @using RealTimeChat.Application.Services
+@using Microsoft.AspNetCore.Authorization
+
+@attribute [Authorize]
+
 @inject ChatService ChatService
 
 <PageTitle>Real-Time Chat</PageTitle>
@@ -19,11 +23,9 @@
         <p>
             Signed in as
             <strong>@auth.User.Identity?.Name</strong>
+            <a href="/logout">Sign out</a>
         </p>
     </Authorized>
-    <NotAuthorized>
-        <a href="/login">Sign in</a>
-    </NotAuthorized>
 </AuthorizeView>
 
 @if (_rooms is null) {
