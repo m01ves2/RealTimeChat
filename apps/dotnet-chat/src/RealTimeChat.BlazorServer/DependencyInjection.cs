@@ -1,4 +1,5 @@
-﻿using RealTimeChat.BlazorServer.Services;
+﻿using Microsoft.AspNetCore.Components.Server.Circuits;
+using RealTimeChat.BlazorServer.Services;
 
 namespace RealTimeChat.BlazorServer
 {
@@ -10,6 +11,10 @@ namespace RealTimeChat.BlazorServer
                                                    // Scoped-сервис circuit был бы отдельным для каждой вкладки.
 
             services.AddSingleton<RoomPresence>();
+
+            // сервисы для отслеживания соединения вкладки клиента
+            services.AddScoped<RoomCircuitHandler>(); //Компонент будет получать сервис как RoomCircuitHandler
+            services.AddScoped<CircuitHandler>(provider => provider.GetRequiredService<RoomCircuitHandler>()); // Blazor ищет обработчики по типу CircuitHandler
 
             return services;
         }

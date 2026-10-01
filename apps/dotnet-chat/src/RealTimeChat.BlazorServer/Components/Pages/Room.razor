@@ -21,6 +21,9 @@
 @inject ChatNotifier Notifier
 @inject RoomPresence Presence
 
+@* отслеживаем соединение вкладки клиента *@
+@inject RoomCircuitHandler Connection 
+
 <a href="/">← Rooms</a>
 
 @if (_isLoading) {
@@ -118,6 +121,8 @@ else if (_room is not null) {
         Notifier.MessageReceived += OnMessageReceivedAsync;
 
         Presence.UsersChanged += OnUsersChangedAsync;
+
+        Connection.ConnectionChanged += OnConnectionChangedAsync;
     }
 
 
@@ -311,7 +316,8 @@ else if (_room is not null) {
     private Task JoinPresenceAsync()
     {
         if (_disposed
-            || !_interactive
+            || !_interactive // отделяет prerender от интерактивного компонента.
+            || !Connection.IsConnected // нужна, например, если загрузка комнаты завершилась уже после отключения: такое завершение не должно вернуть пользователя в онлайн.
             || _isLoading
             || _room is null
             || _userId is null
@@ -347,8 +353,25 @@ else if (_room is not null) {
 
         Notifier.MessageReceived -= OnMessageReceivedAsync;
         Presence.UsersChanged -= OnUsersChangedAsync;
+        Connection.ConnectionChanged -= OnConnectionChangedAsync;
 
         await Presence.LeaveAsync(_participationId);
     }
 
+    private Task OnConnectionChangedAsync(bool connected)
+    {
+        return InvokeAsync(async () =>
+        {
+            if (_disposed)
+                return;
+            
+            // При отключении удаляем участие. При восстановлении добавляем его обратно — если комната уже загружена.
+            if (connected) {
+                await JoinPresenceAsync();
+            }
+            else {
+                await Presence.LeaveAsync(_participationId);
+            }
+        });
+    }
 }
