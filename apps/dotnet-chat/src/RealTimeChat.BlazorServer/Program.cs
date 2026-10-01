@@ -2,14 +2,17 @@ using RealTimeChat.BlazorServer.Components;
 using RealTimeChat.Application;
 using RealTimeChat.Infrastructure;
 using Microsoft.AspNetCore.Identity;
+using RealTimeChat.BlazorServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
 
+// DI
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddServer();
 
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddIdentityCookies();

@@ -8,12 +8,16 @@
 @using RealTimeChat.Application.Exceptions
 @using RealTimeChat.Application.Models
 @using RealTimeChat.Application.Services
+@using RealTimeChat.BlazorServer.Services
 
 @attribute [Authorize]
+
+@implements IDisposable
 
 @inject IServiceScopeFactory ScopeFactory
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
+@inject ChatNotifier Notifier
 
 <a href="/">← Rooms</a>
 
@@ -84,6 +88,14 @@ else if (_room is not null) {
     private string? _sendError;
     private bool _isSending;
 
+    private bool _disposed;
+
+    protected override void OnInitialized()
+    {
+        Notifier.MessageReceived += OnMessageReceivedAsync;
+    }
+
+
     protected override async Task OnParametersSetAsync()
     {
         var version = ++_loadVersion;
@@ -132,7 +144,15 @@ else if (_room is not null) {
                 return;
 
             _room = room;
-            _messages = messages;
+
+            //_messages = messages;
+            // Объединяем историю с сообщениями, пришедшими во время загрузки.
+            _messages = messages.Concat(_messages)
+                                .DistinctBy(message => message.Id)
+                                .OrderBy(message => message.CreatedAt)
+                                .ThenBy(message => message.Id)
+                                .ToArray();
+
             _isLoading = false;
         }
         catch (NotFoundException) {
@@ -180,27 +200,28 @@ else if (_room is not null) {
                 return;
             }
 
+            ChatMessageInfo message;
+
             // Отдельный scope на всю операцию отправки.
-            await using var scope = ScopeFactory.CreateAsyncScope();
+            await using (var scope = ScopeFactory.CreateAsyncScope()) {
+                var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
 
-            var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
+                await chatService.GetRoomAsync(roomId, CancellationToken.None);
 
-            // Сейчас SendMessageAsync сам не проверяет наличие комнаты.
-            await chatService.GetRoomAsync(roomId, CancellationToken.None);
+                message = await chatService.SendMessageAsync(   roomId,
+                                                                userId,
+                                                                text,
+                                                                recipientId: null,
+                                                                cancellationToken: CancellationToken.None);
+            }
 
-            var message = await chatService.SendMessageAsync(
-                roomId,
-                userId,
-                text,
-                recipientId: null, // общее сообщение
-                cancellationToken: CancellationToken.None);
+            // Работа с БД завершена, scope уже освобождён.
+            // Рассылаем сообщение даже при уходе отправителя в другую комнату.
+            await Notifier.PublishPublicMessageAsync(message);
 
-            // Если пользователь уже перешёл в другую комнату,
-            // результат отправки не добавляем в её историю.
             if (version != _loadVersion)
                 return;
 
-            _messages = [.. _messages, message];
             _text = string.Empty;
         }
         catch (ArgumentException ex) {
@@ -215,4 +236,34 @@ else if (_room is not null) {
             _isSending = false;
         }
     }
+
+    private Task OnMessageReceivedAsync(ChatMessageInfo message)
+    {
+        return InvokeAsync(() =>
+        {
+            if (_disposed || message.RoomId != RoomId)
+                return;
+
+            if (_messages.Any(existing => existing.Id == message.Id))
+                return;
+
+            _messages = _messages.Append(message)
+                                .OrderBy(item => item.CreatedAt)
+                                .ThenBy(item => item.Id)
+                                .ToArray();
+
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+
+        // Делает незавершённые загрузки устаревшими.
+        ++_loadVersion;
+
+        Notifier.MessageReceived -= OnMessageReceivedAsync;
+    }
+
 }
