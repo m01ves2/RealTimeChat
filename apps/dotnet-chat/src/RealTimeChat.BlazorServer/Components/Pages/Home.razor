@@ -34,7 +34,9 @@
 else {
     <ul>
         @foreach (var room in _rooms) {
-            <li>@room.Name</li>
+            <li>
+                <a href="@($"/rooms/{room.Id}")">@room.Name</a>
+            </li>
         }
     </ul>
 }

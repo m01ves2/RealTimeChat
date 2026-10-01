@@ -1,0 +1,111 @@
+﻿@page "/rooms/{RoomId:int}"
+@rendermode InteractiveServer
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.DependencyInjection
+@using RealTimeChat.Application.Exceptions
+@using RealTimeChat.Application.Models
+@using RealTimeChat.Application.Services
+
+@attribute [Authorize]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<a href="/">← Rooms</a>
+
+@if (_isLoading) {
+    <p>Loading room...</p>
+}
+else if (_room is not null) {
+    <h1>@_room.Name</h1>
+
+    @if (_messages.Count == 0) {
+        <p>No messages yet.</p>
+    }
+    else {
+        <ul>
+            @foreach (var message in _messages) {
+                <li @key="message.Id">
+                    <strong>@message.AuthorName</strong>
+
+                    @if (message.RecipientId is not null) {
+                        <span>
+                            → @message.RecipientName · Private
+                        </span>
+                    }
+
+                    <span>
+                        @message.CreatedAt.ToString("HH:mm") UTC
+                    </span>
+
+                    <p>@message.Text</p>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter]
+    public int RoomId { get; set; }
+
+    private RoomInfo? _room;
+    private IReadOnlyList<ChatMessageInfo> _messages = [];
+    private bool _isLoading = true;
+    private int _loadVersion;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var version = ++_loadVersion;
+        var roomId = RoomId;
+
+        _isLoading = true;
+        _room = null;
+        _messages = [];
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync(); // AuthenticationStateProvider даёт пользователя текущего UI-сеанса. 
+                                                                                         // Из его claim берём ID для фильтрации приватной истории.
+
+        var userIdText = authState.User
+            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+          
+        if (authState.User.Identity?.IsAuthenticated != true
+            || !int.TryParse(userIdText, out var userId)) {
+
+            Navigation.NavigateTo("/login", forceLoad: true);
+            return;
+        }
+
+        try {
+            // Эти строки создают отдельную область зависимостей
+            // Внутри неё DI создаёт ChatService, его репозитории и DbContext. 
+            // При выходе из блока они освобождаются. Полученные RoomInfo и ChatMessageInfo остаются обычными данными, которые можно отображать.
+            await using var scope = ScopeFactory.CreateAsyncScope(); 
+
+            var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
+
+            var room = await chatService.GetRoomAsync(roomId, CancellationToken.None);
+
+            var messages = await chatService.GetRecentMessagesAsync(roomId, userId, CancellationToken.None);
+
+            //_loadVersion защищает от устаревшей загрузки: если параметры комнаты поменялись, пока мы ждали БД, старый результат не перезапишет новую страницу.
+            if (version != _loadVersion) 
+                return;
+
+            _room = room;
+            _messages = messages;
+            _isLoading = false;
+        }
+        catch (NotFoundException) {
+            if (version != _loadVersion)
+                return;
+
+            Navigation.NavigateTo("/not-found", forceLoad: true);
+        }
+    }
+}
