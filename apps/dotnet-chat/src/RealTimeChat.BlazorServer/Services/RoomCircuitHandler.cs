@@ -34,10 +34,7 @@ namespace RealTimeChat.BlazorServer.Services
                     await handler(connected);
                 }
                 catch (Exception ex) {
-                    logger.LogError(
-                        ex,
-                        "Failed to update room participation. Connected: {Connected}.",
-                        connected);
+                    logger.LogError(ex, "Failed to update room participation. Connected: {Connected}.", connected);
                 }
             }
         }

@@ -13,7 +13,7 @@
 @attribute [Authorize]
 
 @* Уход из комнаты включает асинхронное уведомление остальных участников.*@
-@implements IAsyncDisposable 
+@implements IAsyncDisposable
 
 @inject IServiceScopeFactory ScopeFactory
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -22,7 +22,7 @@
 @inject RoomPresence Presence
 
 @* отслеживаем соединение вкладки клиента *@
-@inject RoomCircuitHandler Connection 
+@inject RoomCircuitHandler Connection
 
 <a href="/">← Rooms</a>
 
@@ -33,7 +33,6 @@ else if (_room is not null) {
     <h1>@_room.Name</h1>
 
     <h2>Online users (@_onlineUsers.Count)</h2>
-
     <ul>
         @foreach (var user in _onlineUsers) {
             <li @key="user.Id">
@@ -53,43 +52,34 @@ else if (_room is not null) {
             @foreach (var message in _messages) {
                 <li @key="message.Id">
                     <strong>@message.AuthorName</strong>
-
                     @if (message.RecipientId is not null) {
-                        <span>
-                            → @message.RecipientName · Private
-                        </span>
+                        <span>→ @message.RecipientName · Private</span>
                     }
-
-                    <span>
-                        @message.CreatedAt.ToString("HH:mm") UTC
-                    </span>
-
+                    <span>@message.CreatedAt.ToString("HH:mm") UTC</span>
                     <p>@message.Text</p>
                 </li>
             }
         </ul>
+    }
 
-        <form @onsubmit="SendAsync" @onsubmit:preventDefault>
-            @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
+    @* Форма доступна и в комнате, где пока нет сообщений. *@
+    <form @onsubmit="SendAsync" @onsubmit:preventDefault>
+        @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
             @bind:event="oninput" обновляет _text при вводе каждого символа. *@
+        <label for="message">Message</label>
+        <textarea id="message"
+                  @bind="_text"
+                  @bind:event="oninput"
+                  maxlength="@MaxMessageLength"
+                  disabled="@_isSending"></textarea>
+        <button type="submit"
+                disabled="@(_isSending || string.IsNullOrWhiteSpace(_text))">
+            @(_isSending ? "Sending..." : "Send")
+        </button>
+    </form>
 
-            <label for="message">Message</label>
-
-            <textarea id="message"
-                      @bind="_text"
-                      @bind:event="oninput"
-                      maxlength="500"
-                      disabled="@_isSending"></textarea>
-
-            <button type="submit"
-                    disabled="@(_isSending || string.IsNullOrWhiteSpace(_text))">
-                @(_isSending ? "Sending..." : "Send")
-            </button>
-        </form>
-
-        @if (_sendError is not null) {
-            <p role="alert">@_sendError</p>
-        }
+    @if (_sendError is not null) {
+        <p role="alert">@_sendError</p>
     }
 }
 
@@ -97,210 +87,81 @@ else if (_room is not null) {
     [Parameter]
     public int RoomId { get; set; }
 
-    private RoomInfo? _room;
-    private IReadOnlyList<ChatMessageInfo> _messages = [];
-    private bool _isLoading = true;
-    private int _loadVersion;
-
-    private string _text = string.Empty;
-    private string? _sendError;
-    private bool _isSending;
-
-    private bool _disposed;
-
+    private const int MaxMessageLength = 500;
     private readonly Guid _participationId = Guid.NewGuid();
 
+    // Данные текущей комнаты и пользователя.
+    private RoomInfo? _room;
+    private IReadOnlyList<ChatMessageInfo> _messages = [];
     private IReadOnlyList<OnlineUser> _onlineUsers = [];
-
     private int? _userId;
     private string? _userName;
+
+    // Состояние загрузки и формы отправки.
+    private bool _isLoading = true;
+    private bool _isSending;
+    private string _text = string.Empty;
+    private string? _sendError;
+
+    // Версия меняется при новой загрузке и при уничтожении компонента.
+    private int _loadVersion;
     private bool _interactive;
+    private bool _disposed;
+
+    // --- Жизненный цикл страницы ---
 
     protected override void OnInitialized()
     {
         Notifier.MessageReceived += OnMessageReceivedAsync;
-
         Presence.UsersChanged += OnUsersChangedAsync;
-
         Connection.ConnectionChanged += OnConnectionChangedAsync;
     }
 
-
     protected override async Task OnParametersSetAsync()
     {
+        if (_disposed)
+            return;
+
         var version = ++_loadVersion;
         var roomId = RoomId;
-
-        _isLoading = true;
-        _room = null;
-        _messages = [];
-        _onlineUsers = [];
-
-        _text = string.Empty;
-        _sendError = null; //При переходе в другую комнату черновик и ошибка сбросятся.
-        _userId = null;
-        _userName = null;
+        ResetRoomState(); //При переходе в другую комнату черновик и ошибка сбросятся.
 
         // Если этот экземпляр компонента уже участвовал в комнате,
         // снимаем прежнее участие перед загрузкой новой.
-        if (_interactive) {
+        if (_interactive)
             await Presence.LeaveAsync(_participationId);
 
-            if (_disposed || version != _loadVersion)
-                return;
-        }
+        if (!IsCurrentRoom(version))
+            return;
 
-        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync(); // AuthenticationStateProvider даёт пользователя текущего UI-сеанса. 
-                                                                                         // Из его claim берём ID для фильтрации приватной истории.
+        var user = await GetCurrentUserAsync();
 
-        var userIdText = authState.User
-            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!IsCurrentRoom(version))
+            return;
 
-          
-        if (authState.User.Identity?.IsAuthenticated != true
-            || !int.TryParse(userIdText, out var userId)) {
-
+        if (user is null) {
             Navigation.NavigateTo("/login", forceLoad: true);
             return;
         }
 
-        _userId = userId; // сохраним пользователя
-        _userName = authState.User.Identity!.Name ?? userId.ToString();
+        _userId = user.Id;// сохраним пользователя
+        _userName = user.UserName;
 
         try {
-            // Эти строки создают отдельную область зависимостей
-            // Внутри неё DI создаёт ChatService, его репозитории и DbContext. 
-            // При выходе из блока они освобождаются. Полученные RoomInfo и ChatMessageInfo остаются обычными данными, которые можно отображать.
-            await using var scope = ScopeFactory.CreateAsyncScope(); // Scope — это область жизни объектов, которые создаёт DI-контейнер. 
-                                                                     // Мы создаём отдельный scope ради короткой жизни зависимостей операции с БД.
+            var result = await LoadRoomAsync(roomId, user.Id);
 
-            // В интерактивном Blazor Server стандартный scope живёт вместе с circuit — UI - сеансом вкладки. 
-            // Клик по кнопке не создаёт новый HTTP-запрос страницы и новую область зависимостей.
-
-            // Получить ChatService именно из этой новой области.
-            var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
-
-            var room = await chatService.GetRoomAsync(roomId, CancellationToken.None);
-
-            var messages = await chatService.GetRecentMessagesAsync(roomId, userId, CancellationToken.None);
-
-            //_loadVersion защищает от устаревшей загрузки: если параметры комнаты поменялись, пока мы ждали БД, старый результат не перезапишет новую страницу.
-            if (version != _loadVersion) 
+            if (!IsCurrentRoom(version))
                 return;
 
-            _room = room;
-
-            //_messages = messages;
-            // Объединяем историю с сообщениями, пришедшими во время загрузки.
-            _messages = messages.Concat(_messages)
-                                .DistinctBy(message => message.Id)
-                                .OrderBy(message => message.CreatedAt)
-                                .ThenBy(message => message.Id)
-                                .ToArray();
-
+            _room = result.Room;
+            MergeMessages(result.Messages);// Объединяем историю с сообщениями, пришедшими во время загрузки.
             _isLoading = false;
-
             await JoinPresenceAsync();
         }
         catch (NotFoundException) {
-            if (version != _loadVersion)
-                return;
-
-            Navigation.NavigateTo("/not-found", forceLoad: true);
+            if (IsCurrentRoom(version))
+                Navigation.NavigateTo("/not-found", forceLoad: true);
         }
-    }
-
-    private async Task SendAsync()
-    {
-        // Защита от повторной отправки, пока предыдущая ещё выполняется.
-        if (_isSending || _isLoading || _room is null)
-            return;
-
-        var text = _text.Trim();
-
-        if (text.Length == 0)
-            return;
-
-        _sendError = null;
-
-        // Ограничение в HTML удобно для пользователя,
-        // но проверка на сервере тоже нужна.
-        if (text.Length > 500) {
-            _sendError = "Message cannot exceed 500 characters.";
-            return;
-        }
-
-        // Запоминаем комнату и версию загрузки до первого await.
-        var roomId = RoomId;
-        var version = _loadVersion;
-
-        _isSending = true;
-
-        try {
-            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-
-            var userIdText = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (authState.User.Identity?.IsAuthenticated != true
-                || !int.TryParse(userIdText, out var userId)) {
-                Navigation.NavigateTo("/login", forceLoad: true);
-                return;
-            }
-
-            ChatMessageInfo message;
-
-            // Отдельный scope на всю операцию отправки.
-            await using (var scope = ScopeFactory.CreateAsyncScope()) {
-                var chatService = scope.ServiceProvider.GetRequiredService<ChatService>();
-
-                await chatService.GetRoomAsync(roomId, CancellationToken.None);
-
-                message = await chatService.SendMessageAsync(   roomId,
-                                                                userId,
-                                                                text,
-                                                                recipientId: null,
-                                                                cancellationToken: CancellationToken.None);
-            }
-
-            // Работа с БД завершена, scope уже освобождён.
-            // Рассылаем сообщение даже при уходе отправителя в другую комнату.
-            await Notifier.PublishPublicMessageAsync(message);
-
-            if (version != _loadVersion)
-                return;
-
-            _text = string.Empty;
-        }
-        catch (ArgumentException ex) {
-            if (version == _loadVersion)
-                _sendError = ex.Message;
-        }
-        catch (NotFoundException) {
-            if (version == _loadVersion)
-                _sendError = "The room or user no longer exists.";
-        }
-        finally {
-            _isSending = false;
-        }
-    }
-
-    private Task OnMessageReceivedAsync(ChatMessageInfo message)
-    {
-        return InvokeAsync(() =>
-        {
-            if (_disposed || message.RoomId != RoomId)
-                return;
-
-            if (_messages.Any(existing => existing.Id == message.Id))
-                return;
-
-            _messages = _messages.Append(message)
-                                .OrderBy(item => item.CreatedAt)
-                                .ThenBy(item => item.Id)
-                                .ToArray();
-
-            StateHasChanged();
-        });
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -308,42 +169,9 @@ else if (_room is not null) {
         if (!firstRender || _disposed)
             return;
 
+        // Этот метод не вызывается во время prerender.
         _interactive = true;
-
         await JoinPresenceAsync();
-    }
-
-    private Task JoinPresenceAsync()
-    {
-        if (_disposed
-            || !_interactive // отделяет prerender от интерактивного компонента.
-            || !Connection.IsConnected // нужна, например, если загрузка комнаты завершилась уже после отключения: такое завершение не должно вернуть пользователя в онлайн.
-            || _isLoading
-            || _room is null
-            || _userId is null
-            || _userName is null) {
-            return Task.CompletedTask;
-        }
-
-        return Presence.JoinAsync(
-            _participationId,
-            _room.Id,
-            _userId.Value,
-            _userName);
-    }
-
-    private Task OnUsersChangedAsync(int roomId)
-    {
-        return InvokeAsync(() =>
-        {
-            if (_disposed || roomId != RoomId)
-                return;
-
-            // Читаем актуальный список, а не старый снимок из уведомления.
-            _onlineUsers = Presence.GetUsers(roomId);
-
-            StateHasChanged();
-        });
     }
 
     public async ValueTask DisposeAsync()
@@ -358,20 +186,214 @@ else if (_room is not null) {
         await Presence.LeaveAsync(_participationId);
     }
 
+    // --- Отправка: проверить → сохранить → уведомить ---
+
+    private async Task SendAsync()
+    {
+        // Защита от повторной отправки, пока предыдущая ещё выполняется.
+        if (_disposed || _isSending || _isLoading || _room is null)
+            return;
+
+        var text = _text.Trim();
+        if (!ValidateMessageText(text))
+            return;
+
+        // Запоминаем комнату и версию загрузки до первого await.
+        var roomId = RoomId;
+        var version = _loadVersion;
+        _isSending = true;
+
+        try {
+            var user = await GetCurrentUserAsync();
+
+            if (!IsCurrentRoom(version))
+                return;
+
+            if (user is null) {
+                Navigation.NavigateTo("/login", forceLoad: true);
+                return;
+            }
+
+            var message = await SaveMessageAsync(roomId, user.Id, text);
+
+            // После сохранения доставляем сообщение даже при уходе отправителя.
+            // Работа с БД завершена, scope уже освобождён.
+            // Рассылаем сообщение даже при уходе отправителя в другую комнату.
+            await Notifier.PublishPublicMessageAsync(message);
+
+            if (IsCurrentRoom(version))
+                _text = string.Empty;
+        }
+        catch (ArgumentException ex) {
+            if (IsCurrentRoom(version))
+                _sendError = ex.Message;
+        }
+        catch (NotFoundException) {
+            if (IsCurrentRoom(version))
+                _sendError = "The room or user no longer exists.";
+        }
+        finally {
+            _isSending = false;
+        }
+    }
+
+    private bool ValidateMessageText(string text)
+    {
+        _sendError = null;
+
+        if (text.Length == 0)
+            return false;
+
+        if (text.Length <= MaxMessageLength)
+            return true;
+
+        _sendError = $"Message cannot exceed {MaxMessageLength} characters.";
+        return false;
+    }
+
+    // --- Получение пользователя и операции с БД ---
+
+    private async Task<UserInfo?> GetCurrentUserAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync(); // AuthenticationStateProvider даёт пользователя текущего UI-сеанса.
+                                                                                     // Из его claim берём ID для фильтрации приватной истории.
+        var principal = state.User;
+        var idText = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (principal.Identity?.IsAuthenticated != true
+            || !int.TryParse(idText, out var id)) {
+            return null;
+        }
+
+        return new UserInfo(id, principal.Identity.Name ?? id.ToString());
+    }
+
+    private async Task<(RoomInfo Room, IReadOnlyList<ChatMessageInfo> Messages)>
+        LoadRoomAsync(int roomId, int userId)
+    {
+        // Эти строки создают отдельную область зависимостей
+        // Внутри неё DI создаёт ChatService, его репозитории и DbContext.
+        // При выходе из блока они освобождаются. Полученные RoomInfo и ChatMessageInfo остаются обычными данными, которые можно отображать.
+
+        // Scope ограничивает жизнь ChatService, репозиториев и DbContext.
+        await using var scope = ScopeFactory.CreateAsyncScope();// Scope — это область жизни объектов, которые создаёт DI-контейнер.
+
+        // В интерактивном Blazor Server стандартный scope живёт вместе с circuit — UI - сеансом вкладки.
+        // Клик по кнопке не создаёт новый HTTP-запрос страницы и новую область зависимостей.
+
+        // Получить ChatService именно из этой новой области.
+        var chat = scope.ServiceProvider.GetRequiredService<ChatService>();
+
+        var room = await chat.GetRoomAsync(roomId, CancellationToken.None);
+        var messages = await chat.GetRecentMessagesAsync(
+            roomId, userId, CancellationToken.None);
+
+        // К моменту возврата данных scope будет освобождён.
+        return (room, messages);
+    }
+
+    private async Task<ChatMessageInfo> SaveMessageAsync(
+        int roomId, int userId, string text)
+    {
+        // Отдельный scope на всю операцию отправки.
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        var chat = scope.ServiceProvider.GetRequiredService<ChatService>();
+
+        // SendMessageAsync пока не проверяет существование комнаты.
+        await chat.GetRoomAsync(roomId, CancellationToken.None);
+
+        return await chat.SendMessageAsync(
+            roomId, userId, text,
+            recipientId: null,
+            cancellationToken: CancellationToken.None);
+    }
+
+    // --- Изменение состояния страницы ---
+
+    private void ResetRoomState()
+    {
+        _isLoading = true;
+        _room = null;
+        _messages = [];
+        _onlineUsers = [];
+        _text = string.Empty;
+        _sendError = null;
+        _userId = null;
+        _userName = null;
+    }
+
+    private bool IsCurrentRoom(int version)
+    {
+        //_loadVersion защищает от устаревшей загрузки: если параметры комнаты поменялись, пока мы ждали БД, старый результат не перезапишет новую страницу.
+        return !_disposed && version == _loadVersion;
+    }
+
+    private void MergeMessages(IEnumerable<ChatMessageInfo> messages)
+    {
+        // Один алгоритм для истории и для сообщений от notifier.
+        _messages = _messages.Concat(messages)
+            .DistinctBy(message => message.Id)
+            .OrderBy(message => message.CreatedAt)
+            .ThenBy(message => message.Id)
+            .ToArray();
+    }
+
+    // --- Участие в комнате и внешние уведомления ---
+
+    private Task JoinPresenceAsync()
+    {
+        if (_disposed
+            || !_interactive // отделяет prerender от интерактивного компонента.
+            || !Connection.IsConnected // нужна, например, если загрузка комнаты завершилась уже после отключения: такое завершение не должно вернуть пользователя в онлайн.
+            || _isLoading
+            || _room is null
+            || _userId is null
+            || _userName is null) {
+            return Task.CompletedTask;
+        }
+
+        return Presence.JoinAsync(
+            _participationId, _room.Id, _userId.Value, _userName);
+    }
+
+    private Task OnMessageReceivedAsync(ChatMessageInfo message)
+    {
+        return InvokeAsync(() =>
+        {
+            if (_disposed || message.RoomId != RoomId || _messages.Any(existing => existing.Id == message.Id)) {
+                return;
+            }
+
+            MergeMessages(new[] { message });
+            StateHasChanged();
+        });
+    }
+
+    private Task OnUsersChangedAsync(int roomId)
+    {
+        return InvokeAsync(() =>
+        {
+            if (_disposed || roomId != RoomId)
+                return;
+
+            // Читаем актуальный список, а не старый снимок из уведомления.
+            _onlineUsers = Presence.GetUsers(roomId);
+            StateHasChanged();
+        });
+    }
+
     private Task OnConnectionChangedAsync(bool connected)
     {
         return InvokeAsync(async () =>
         {
             if (_disposed)
                 return;
-            
+
             // При отключении удаляем участие. При восстановлении добавляем его обратно — если комната уже загружена.
-            if (connected) {
+            if (connected)
                 await JoinPresenceAsync();
-            }
-            else {
+            else
                 await Presence.LeaveAsync(_participationId);
-            }
         });
     }
 }

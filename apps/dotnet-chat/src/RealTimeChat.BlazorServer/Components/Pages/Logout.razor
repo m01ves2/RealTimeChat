@@ -13,9 +13,7 @@
 
 <h1>Sign out</h1>
 
-<form method="post"
-      @formname="logout"
-      @onsubmit="LogoutAsync">
+<form method="post" @formname="logout" @onsubmit="LogoutAsync">
     <AntiforgeryToken />
 
     <p>Sign out of your account?</p>

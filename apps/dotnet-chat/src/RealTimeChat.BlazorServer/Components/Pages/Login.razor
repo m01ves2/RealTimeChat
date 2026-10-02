@@ -56,7 +56,8 @@ Static SSR означает, что после загрузки страницы
 
     protected override void OnInitialized()
     {
-        Input ??= new();
+        Input ??= new(); // equal: if (Input is null) Input = new LoginInput();
+        
     }
 
     private async Task LoginAsync()
