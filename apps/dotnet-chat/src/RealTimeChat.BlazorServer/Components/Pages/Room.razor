@@ -68,6 +68,25 @@ else if (_room is not null) {
         
         @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
             @bind:event="oninput" обновляет _text при вводе каждого символа. *@
+
+        <label for="recipient">Recipient</label>
+        <select id="recipient"
+                @bind="_recipientId"
+                disabled="@_isSending">
+            <option value="">Everyone</option>
+
+            @foreach (var user in _onlineUsers.Where(user => user.Id != _userId))
+            {
+                <option value="@user.Id">@user.UserName</option>
+            }
+
+            @* сохраняет выбранного адресата в списке, если он отключился. Иначе список может визуально показать Everyone, хотя в _recipientId остаётся его ID. *@
+            @if (_recipientId is int selectedId && !_onlineUsers.Any(user => user.Id == selectedId))
+            {
+                <option value="@selectedId">Selected recipient (offline)</option>
+            }
+        </select>
+
         <label for="message">Message</label>
         <textarea id="message"
                   @bind="_text"
@@ -99,6 +118,8 @@ else if (_room is not null) {
     private IReadOnlyList<OnlineUser> _onlineUsers = [];
     private int? _userId;
     private string? _userName;
+
+    private int? _recipientId;
 
     // Состояние загрузки и формы отправки.
     private bool _isLoading = true;
@@ -211,6 +232,8 @@ else if (_room is not null) {
         // Запоминаем комнату и версию загрузки до первого await.
         var roomId = RoomId;
         var version = _loadVersion;
+        var recipientId = _recipientId;
+
         _isSending = true;
 
         try {
@@ -224,7 +247,7 @@ else if (_room is not null) {
                 return;
             }
 
-            var message = await SaveMessageAsync(roomId, user.Id, text);
+            var message = await SaveMessageAsync(roomId, user.Id, text, recipientId);
 
             // После сохранения доставляем сообщение даже при уходе отправителя.
             // Работа с БД завершена, scope уже освобождён.
@@ -299,7 +322,7 @@ else if (_room is not null) {
         return (room, messages);
     }
 
-    private async Task<ChatMessageInfo> SaveMessageAsync(int roomId, int userId, string text)
+    private async Task<ChatMessageInfo> SaveMessageAsync(int roomId, int userId, string text, int? recipientId)
     {
         // Отдельный scope на всю операцию отправки.
         await using var scope = ScopeFactory.CreateAsyncScope();
@@ -310,7 +333,7 @@ else if (_room is not null) {
 
         return await chat.SendMessageAsync(
             roomId, userId, text,
-            recipientId: null,
+            recipientId,
             cancellationToken: CancellationToken.None);
     }
 
@@ -326,6 +349,7 @@ else if (_room is not null) {
         _sendError = null;
         _userId = null;
         _userName = null;
+        _recipientId = null;
         Notifier.Unsubscribe(_participationId);
     }
 
@@ -366,6 +390,14 @@ else if (_room is not null) {
         return InvokeAsync(() =>
         {
             if (_disposed || message.RoomId != RoomId || _messages.Any(existing => existing.Id == message.Id)) {
+                return;
+            }
+
+            if (_userId is null){
+                return;
+            }
+
+            if (message.RecipientId is not null && message.AuthorId != _userId && message.RecipientId != _userId){
                 return;
             }
 
