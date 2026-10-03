@@ -397,7 +397,8 @@ else if (_room is not null) {
                 return;
             }
 
-            if (message.RecipientId is not null && message.AuthorId != _userId && message.RecipientId != _userId){
+            var canSeeMessage = message.RecipientId is null || message.AuthorId == _userId || message.RecipientId == _userId;
+            if (!canSeeMessage) { //если это приватное сообщение, но не моё и не для меня - пропустить!
                 return;
             }
 
