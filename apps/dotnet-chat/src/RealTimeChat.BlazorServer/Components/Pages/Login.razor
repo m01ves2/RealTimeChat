@@ -22,16 +22,14 @@ Static SSR означает, что после загрузки страницы
 
     <div>
         <label for="username">Username</label>
-        <InputText id="username"
-                   autocomplete="username"
-                   @bind-Value="Input.UserName" />
+        <InputText id="username" autocomplete="username" @bind-Value="Input.UserName" /> @* autocomplete - Браузер или менеджер паролей может предложить сохранённый логин и автоматически заполнить поле. *@
     </div>
 
     <div>
         <label for="password">Password</label>
         <InputText id="password"
                    type="password"
-                   autocomplete="current-password"
+                   autocomplete="current-password" @*Для пароля при входе используется current-passwor для автозаполнения*@
                    @bind-Value="Input.Password" />
     </div>
 
