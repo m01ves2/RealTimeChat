@@ -1,0 +1,42 @@
+﻿@page "/logout"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Antiforgery
+@using Microsoft.AspNetCore.Identity
+@using RealTimeChat.Infrastructure.Identity
+
+@attribute [Authorize]
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<main class="auth-page">
+    <section class="auth-card">
+        <h1>Sign out</h1>
+
+        <form method="post"
+              @formname="logout"
+              @onsubmit="LogoutAsync"
+              class="auth-form">
+
+            <AntiforgeryToken />
+
+            <p>Sign out of your account?</p>
+
+            <div class="auth-actions">
+                <button type="submit">Sign out</button>
+                <a href="/">Cancel</a>
+            </div>
+        </form>
+    </section>
+</main>
+
+@code {
+    // Эта страница остаётся static SSR, как и вход. Открытие /logout только показывает форму. 
+    // Нажатие кнопки отправляет HTTP POST, и SignOutAsync() подготавливает удаление cookie в ответе.
+    private async Task LogoutAsync()
+    {
+        await SignInManager.SignOutAsync();
+
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+}

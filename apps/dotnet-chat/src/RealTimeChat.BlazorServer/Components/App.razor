@@ -1,0 +1,27 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["RealTimeChat.BlazorServer.styles.css"]" />
+    <ImportMap />
+    @* static SSR для login, поэтому убрали атрибут @rendermode="InteractiveServer" у HeadOutlet.
+    Для Blazor Server с cookie-аутентификацией это стандартный подход: вход и выход обрабатываются обычными HTTP-запросами, 
+    а сам чат работает через интерактивные серверные компоненты.
+    *@
+    <HeadOutlet /> 
+</head>
+
+<body>
+    @* static SSR для login , поэтому убрали атрибут @rendermode="InteractiveServer" у Routes. *@
+    <Routes />
+    <ReconnectModal />
+    <script src="chat.js"></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>
