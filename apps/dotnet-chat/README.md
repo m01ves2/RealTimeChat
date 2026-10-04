@@ -112,3 +112,14 @@ the room and loads recent messages that it may have missed.
 
 The layout adapts to narrow screens. Message history scrolls independently
 and follows new messages only while the reader is near the bottom.
+
+## Learning materials
+
+- [Blazor Server: How it works (.NET 10)](~/docs/learning/BlazorServer-HowItWorks-NET10.pdf)
+  — manual for Blazor Server based on RealTimeChat: HTTP, SSR, circuit,
+  rendering, DI и cookie-auth.
+
+  Blazor_WASM_HowItWorks-NET10
+  - [Blazor Wasm: How it works (.NET 10)](~/docs/learning/BlazorWasm-HowItWorks-NET10.pdf)
+  — manual for Blazor Wasm based on RealTimeChat: runtime and AOT, components, HTTP API, 
+  cookie, HubConnection, группы, private messages and reconnect.

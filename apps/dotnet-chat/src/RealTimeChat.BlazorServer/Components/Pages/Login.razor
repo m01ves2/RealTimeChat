@@ -1,0 +1,93 @@
+﻿@page "/login"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using RealTimeChat.Infrastructure.Identity
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<main class="auth-page">
+    <section class="auth-card">
+        <h1>Sign in</h1>
+
+        @* 1. Браузер запрашивает /login.
+2. Сервер выполняет Razor-компонент и формирует HTML с полями и кнопкой.
+3. Браузер получает HTML и отображает форму.
+Static SSR означает, что после загрузки страницы компонент не становится интерактивным: для него не устанавливается Blazor-соединение, через которое могли бы выполняться C#-обработчики действий пользователя.
+Но форма всё равно работает: при нажатии Sign in браузер отправляет обычный HTTP POST. Сервер снова выполняет компонент, получает данные формы и вызывает LoginAsync(). *@
+
+        <EditForm Model="Input" method="post" FormName="login" OnValidSubmit="LoginAsync" class="auth-form">
+            @* FormName - определяет форму, которую обрабатывает сервер. EditForm - автоматически добавляет antiforgery-защиту — теперь наш UseAntiforgery() пригодился. *@
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+
+            <div class="form-field">
+                <label for="username">Username</label>
+                <InputText id="username"
+                           autocomplete="username"
+                           @bind-Value="Input.UserName" />@* autocomplete - Браузер или менеджер паролей может предложить сохранённый логин и автоматически заполнить поле. *@
+            </div>
+
+
+            <div class="form-field">
+                <label for="password">Password</label>
+                <InputText id="password"
+                           type="password"
+                           autocomplete="current-password"@*Для пароля при входе используется current-passwor для автозаполнения*@
+                           @bind-Value="Input.Password" />
+            </div>
+
+            <button type="submit">Sign in</button>
+        </EditForm>
+
+        @if (_error is not null) {
+            <p role="alert">@_error</p>
+        }
+    </section>
+</main>
+
+@code {
+    // Вход обрабатывается обычным HTTP POST:
+    // SignInManager выдаёт cookie через заголовок HTTP-ответа.
+    // В интерактивном обработчике Blazor такой возможности нет.
+
+
+    // заполняет Input данными POST-запроса.
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = default!;
+
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        Input ??= new(); // equal: if (Input is null) Input = new LoginInput();
+
+    }
+
+    private async Task LoginAsync()
+    {
+        var result = await SignInManager.PasswordSignInAsync(
+            Input.UserName.Trim(),
+            Input.Password,
+            isPersistent: false,
+            lockoutOnFailure: true);
+
+        Input.Password = string.Empty;
+
+        if (!result.Succeeded) {
+            _error = "Unable to sign in. Check your username and password.";
+            return;
+        }
+
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+
+    public sealed class LoginInput
+    {
+        [Required]
+        public string UserName { get; set; } = string.Empty;
+
+        [Required]
+        public string Password { get; set; } = string.Empty;
+    }
+}
