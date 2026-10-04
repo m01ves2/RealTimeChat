@@ -20,6 +20,7 @@
 @inject NavigationManager Navigation
 @inject ChatNotifier Notifier
 @inject RoomPresence Presence
+@inject TypingNotifier Typing
 
 @* отслеживаем соединение вкладки клиента *@
 @inject RoomCircuitHandler Connection
@@ -62,6 +63,10 @@ else if (_room is not null) {
         </ul>
     }
 
+    @if (!string.IsNullOrEmpty(TypingText)) {
+        <p role="status">@TypingText</p>
+    }
+
     @* Форма доступна и в комнате, где пока нет сообщений. *@
     <form @onsubmit="SendAsync" @onsubmit:preventDefault>@* один обработчик события и отдельная настройка(модификатор поведения события - 
                                                             отменить стандартное действие браузера: обычную HTTP-отправку формы) того же события *@
@@ -88,9 +93,12 @@ else if (_room is not null) {
         </select>
 
         <label for="message">Message</label>
+
+        @*браузер: input -> Blazor обновляет _text -> OnTextChangedAsync(). внутри OnTextChangedAsync() мы уже видим новое значение _text*@
         <textarea id="message"
                   @bind="_text"
                   @bind:event="oninput"
+                  @bind:after="OnTextChangedAsync"
                   maxlength="@MaxMessageLength"
                   disabled="@_isSending"></textarea>
         <button type="submit"
@@ -135,12 +143,40 @@ else if (_room is not null) {
     private bool _disposed; // завершение жизни компонента.
                             //отвечает на вопрос: Этот компонент уже уничтожается и должен прекратить обновления? компонент больше не должен принимать результаты
 
+    // уведомления о typing...
+    private DateTimeOffset _lastTypingNotificationAt = DateTimeOffset.MinValue;
+    private readonly Dictionary<Guid, TypingState> _typingParticipations = [];
+    private int _typingSequence;
+
+    private sealed record TypingState(int UserId, string UserName, int Sequence);
+
+    private string TypingText
+    {
+        get
+        {
+            var users = _typingParticipations.Values
+                            .DistinctBy(typing => typing.UserId)
+                            .OrderBy(typing => typing.UserName, StringComparer.OrdinalIgnoreCase)
+                            .Select(typing => typing.UserName)
+                            .ToArray();
+
+            return users.Length switch
+            {
+                0 => string.Empty,
+                1 => $"{users[0]} is typing...",
+                2 => $"{users[0]} and {users[1]} are typing...",
+                _ => $"{users[0]}, {users[1]} and {users.Length - 2} others are typing..."
+            };
+        }
+    }
+
     // --- Жизненный цикл страницы ---
 
     protected override void OnInitialized()
     {
         Presence.UsersChanged += OnUsersChangedAsync;
         Connection.ConnectionChanged += OnConnectionChangedAsync;
+        Typing.TypingChanged += OnTypingChangedAsync;
     }
 
     private void SubscribeToMessages()
@@ -166,6 +202,8 @@ else if (_room is not null) {
         var version = ++_loadVersion;
         var roomId = RoomId;
         ResetRoomState(); //При переходе в другую комнату черновик и ошибка сбросятся.
+
+        await Typing.StopTypingAsync(_participationId); //перед уходом из старой комнаты прекращаем typing notify
 
         // Если этот экземпляр компонента уже участвовал в комнате,
         // снимаем прежнее участие перед загрузкой новой.
@@ -212,8 +250,14 @@ else if (_room is not null) {
         ++_loadVersion;
 
         Presence.UsersChanged -= OnUsersChangedAsync;
+        
         Connection.ConnectionChanged -= OnConnectionChangedAsync;
+        
         Notifier.Unsubscribe(_participationId);
+
+        Typing.TypingChanged -= OnTypingChangedAsync;
+
+        await Typing.StopTypingAsync(_participationId); // При уничтожении компонента прекращаем оповещение typing...
 
         await Presence.LeaveAsync(_participationId);
     }
@@ -254,8 +298,13 @@ else if (_room is not null) {
             // Рассылаем сообщение даже при уходе отправителя в другую комнату.
             await Notifier.PublishMessageAsync(message);
 
-            if (IsCurrentRoom(version))
+            // после успешного сохранения/рассылки сообщения, можно остановить typing
+            await Typing.StopTypingAsync(_participationId);
+
+            if (IsCurrentRoom(version)) {
                 _text = string.Empty;
+                _lastTypingNotificationAt = DateTimeOffset.MinValue;
+            }
         }
         catch (ArgumentException ex) {
             if (IsCurrentRoom(version))
@@ -351,6 +400,7 @@ else if (_room is not null) {
         _userName = null;
         _recipientId = null;
         Notifier.Unsubscribe(_participationId);
+        _typingParticipations.Clear();
     }
 
     private bool IsCurrentRoom(int version)
@@ -429,10 +479,92 @@ else if (_room is not null) {
                 return;
 
             // При отключении удаляем участие. При восстановлении добавляем его обратно — если комната уже загружена.
-            if (connected)
+            if (connected){
                 await JoinPresenceAsync();
-            else
+            }
+            else{
+                await Typing.StopTypingAsync(_participationId); //при потере соединения прекращаем typing notify
+
                 await Presence.LeaveAsync(_participationId);
+            }
         });
+    }
+
+    private async Task OnTextChangedAsync()
+    {
+        if (_disposed || _isLoading || _room is null || _userId is null || _userName is null) {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_text)) {
+            _lastTypingNotificationAt = DateTimeOffset.MinValue; // на случай, если: печатает → очистил → тут же снова начал печатать
+            await Typing.StopTypingAsync(_participationId);
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (now - _lastTypingNotificationAt < TimeSpan.FromSeconds(1))
+            return;
+
+        _lastTypingNotificationAt = now;
+
+        await Typing.StartTypingAsync(_participationId, _room.Id, _userId.Value, _userName);
+    }
+
+    private async Task OnTypingChangedAsync(TypingChange change)
+    {
+        var sequence = 0;
+
+        await InvokeAsync(() =>
+        {
+            if (_disposed || _isLoading || change.RoomId != RoomId || _userId is null 
+                || change.UserId == _userId) { //Собственный typing мы вообще не храним.
+                return;
+            }
+
+            if (!change.IsTyping) {
+                if (_typingParticipations.Remove(change.ParticipationId))
+                    StateHasChanged();
+
+                return;
+            }
+
+            sequence = ++_typingSequence;
+
+            _typingParticipations[change.ParticipationId] = new TypingState(change.UserId, change.UserName, sequence);
+
+            StateHasChanged();
+        });
+
+        if (sequence != 0) {
+            _ = HideTypingAfterDelayAsync(change.ParticipationId, change.RoomId, sequence);
+        }
+    }
+
+    private async Task HideTypingAfterDelayAsync(Guid participationId, int roomId, int sequence)
+    {
+        try {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            await InvokeAsync(() =>
+            {
+                if (_disposed || roomId != RoomId)
+                    return;
+
+                if (!_typingParticipations.TryGetValue(participationId, out var typing)) {
+                    return;
+                }
+
+                if (typing.Sequence != sequence)
+                    return;
+
+                _typingParticipations.Remove(participationId);
+                StateHasChanged();
+            });
+        }
+        catch {
+            // Component/circuit may already be gone.
+        }
     }
 }
