@@ -25,92 +25,141 @@
 @* отслеживаем соединение вкладки клиента *@
 @inject RoomCircuitHandler Connection
 
-<a href="/">← Rooms</a>
+<PageTitle>@(_room?.Name ?? "Room")</PageTitle>
 
-@if (_isLoading) {
-    <p>Loading room...</p>
-}
-else if (_room is not null) {
-    <h1>@_room.Name</h1>
+<main class="chat-page room-page">
 
-    <h2>Online users (@_onlineUsers.Count)</h2>
-    <ul>
-        @foreach (var user in _onlineUsers) {
-            <li @key="user.Id">
-                @user.UserName
-                @if (user.Id == _userId) {
-                    <span> (you)</span>
-                }
-            </li>
-        }
-    </ul>
+    <header class="room-header">
+        <a class="back-to-rooms" href="/">← Rooms</a>
+    </header>
 
-    @if (_messages.Count == 0) {
-        <p>No messages yet.</p>
+    @if (_isLoading) {
+        <p>Loading room...</p>
     }
-    else {
-        <ul>
-            @foreach (var message in _messages) {
-                <li @key="message.Id">
-                    <strong>@message.AuthorName</strong>
-                    @if (message.RecipientId is not null) {
-                        <span>→ @message.RecipientName · Private</span>
+    else if (_room is not null) {
+        <h1>@_room.Name</h1>
+
+        <div class="room-layout">
+
+            <section class="room-conversation">
+                <h2 id="messages-title">Messages</h2>
+
+                <div class="message-scroll">
+                    @if (_messages.Count == 0) {
+                        <p>No messages yet.</p>
                     }
-                    <span>@message.CreatedAt.ToString("HH:mm") UTC</span>
-                    <p>@message.Text</p>
-                </li>
-            }
-        </ul>
-    }
+                    else {
+                        <ul class="message-list">
+                            @foreach (var message in _messages) {
+                                <li @key="message.Id"
+                                    class="@(message.RecipientId is null
+                                                                            ? "message"
+                                                                            : "message message-private")">
 
-    @if (!string.IsNullOrEmpty(TypingText)) {
-        <p role="status">@TypingText</p>
-    }
+                                    <div class="message-meta">
+                                        <strong>
+                                            <button type="button"
+                                                    class="recipient-link"
+                                                    @onclick="() => SelectRecipient(message.AuthorId, message.AuthorName)">
+                                                @message.AuthorName
+                                            </button>
+                                        </strong>
 
-    @* Форма доступна и в комнате, где пока нет сообщений. *@
-    <form @onsubmit="SendAsync" @onsubmit:preventDefault>@* один обработчик события и отдельная настройка(модификатор поведения события - 
-                                                            отменить стандартное действие браузера: обычную HTTP-отправку формы) того же события *@
+                                        @if (message.RecipientName is not null) {
+                                            <span class="private-recipient">
+                                                → @message.RecipientName · Private
+                                            </span>
+                                        }
+
+                                        <time datetime="@message.CreatedAt.ToString("O")">
+                                            @message.CreatedAt.ToLocalTime().ToString("HH:mm")
+                                        </time>
+                                    </div>
+
+                                    <p class="message-text">@message.Text</p>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </section>
+
+            <aside class="room-users">
+                <h2>Online users (@_onlineUsers.Count)</h2>
+
+                <ul>
+                    @foreach (var user in _onlineUsers) {
+                        <li @key="user.Id">
+                            @if (user.Id == _userId) {
+                                <span>@user.UserName (you)</span>
+                            }
+                            else {
+                                <button type="button"
+                                        class="recipient-link"
+                                        @onclick="() => SelectRecipient(user.Id, user.UserName)">
+                                    @user.UserName
+                                </button>
+                            }
+                        </li>
+                    }
+                </ul>
+            </aside>
+
+        </div>
+
+        <p class="typing-status" role="status">@TypingText</p>
+
+        @* Форма доступна и в комнате, где пока нет сообщений. *@
+        <form class="room-composer"
+              @onsubmit="SendAsync" 
+              @onsubmit:preventDefault>@* один обработчик события и отдельная настройка(модификатор поведения события - 
+                                          отменить стандартное действие браузера: обычную HTTP-отправку формы) того же события *@
         
-        @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
+            @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
             @bind:event="oninput" обновляет _text при вводе каждого символа. *@
 
-        <label for="recipient">Recipient</label>
-        <select id="recipient"
-                @bind="_recipientId"
-                disabled="@_isSending">
-            <option value="">Everyone</option>
+            <label for="recipient-name">To</label>
 
-            @foreach (var user in _onlineUsers.Where(user => user.Id != _userId))
-            {
-                <option value="@user.Id">@user.UserName</option>
+            <div class="recipient-row">
+                <input id="recipient-name"
+                       value="@SelectedRecipientName"
+                       readonly />
+
+                @if (_recipientId is not null) {
+                    <button type="button"
+                            class="recipient-reset"
+                            @onclick="SendToEveryone">
+                        Everyone
+                    </button>
+                }
+            </div>
+
+            <label for="message">Message</label>
+
+            @*браузер: input -> Blazor обновляет _text -> OnTextChangedAsync(). внутри OnTextChangedAsync() мы уже видим новое значение _text*@
+            <textarea id="message"
+                      rows="3"
+                      @bind="_text"
+                      @bind:event="oninput"
+                      @bind:after="OnTextChangedAsync"
+                      maxlength="@MaxMessageLength"
+                      disabled="@_isSending">
+
+            </textarea>
+
+            <button type="submit"
+                    disabled="@(_isSending || string.IsNullOrWhiteSpace(_text))">
+                @(_isSending ? "Sending..." : "Send")
+            </button>
+
+            @if (_sendError is not null) {
+                <p role="alert">@_sendError</p>
             }
-
-            @* сохраняет выбранного адресата в списке, если он отключился. Иначе список может визуально показать Everyone, хотя в _recipientId остаётся его ID. *@
-            @if (_recipientId is int selectedId && !_onlineUsers.Any(user => user.Id == selectedId))
-            {
-                <option value="@selectedId">Selected recipient (offline)</option>
-            }
-        </select>
-
-        <label for="message">Message</label>
-
-        @*браузер: input -> Blazor обновляет _text -> OnTextChangedAsync(). внутри OnTextChangedAsync() мы уже видим новое значение _text*@
-        <textarea id="message"
-                  @bind="_text"
-                  @bind:event="oninput"
-                  @bind:after="OnTextChangedAsync"
-                  maxlength="@MaxMessageLength"
-                  disabled="@_isSending"></textarea>
-        <button type="submit"
-                disabled="@(_isSending || string.IsNullOrWhiteSpace(_text))">
-            @(_isSending ? "Sending..." : "Send")
-        </button>
-    </form>
-
-    @if (_sendError is not null) {
-        <p role="alert">@_sendError</p>
+        </form>
     }
-}
+
+</main>
+
 
 @code {
 
@@ -127,7 +176,11 @@ else if (_room is not null) {
     private int? _userId;
     private string? _userName;
 
+    // Получатель сообщений
     private int? _recipientId;
+    private string? _recipientName;
+    //private string SelectedRecipientName => _recipientId is null ? "Everyone" : _onlineUsers.FirstOrDefault(user => user.Id == _recipientId)?.UserName ?? "Selected recipient (offline)";
+    private string SelectedRecipientName => _recipientName ?? "Everyone";
 
     // Состояние загрузки и формы отправки.
     private bool _isLoading = true;
@@ -333,6 +386,21 @@ else if (_room is not null) {
         return false;
     }
 
+    private void SelectRecipient(int userId, string userName)
+    {
+        if (_userId == userId)
+            return;
+
+        _recipientId = userId;
+        _recipientName = userName;
+    }
+
+    private void SendToEveryone()
+    {
+        _recipientId = null;
+        _recipientName = null;
+    }
+
     // --- Получение пользователя и операции с БД ---
 
     private async Task<UserInfo?> GetCurrentUserAsync()
@@ -399,6 +467,7 @@ else if (_room is not null) {
         _userId = null;
         _userName = null;
         _recipientId = null;
+        _recipientName = null;
         Notifier.Unsubscribe(_participationId);
         _typingParticipations.Clear();
     }
