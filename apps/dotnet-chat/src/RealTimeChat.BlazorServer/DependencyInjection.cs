@@ -15,6 +15,7 @@ namespace RealTimeChat.BlazorServer
             // сервисы для отслеживания соединения вкладки клиента
             services.AddScoped<RoomCircuitHandler>(); //Компонент будет получать сервис как RoomCircuitHandler
             services.AddScoped<CircuitHandler>(provider => provider.GetRequiredService<RoomCircuitHandler>()); // Blazor ищет обработчики по типу CircuitHandler
+            services.AddSingleton<TypingNotifier>();
 
             return services;
         }
