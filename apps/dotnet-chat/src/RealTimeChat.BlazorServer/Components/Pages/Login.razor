@@ -5,40 +5,46 @@
 @inject SignInManager<ApplicationUser> SignInManager
 @inject NavigationManager Navigation
 
-<PageTitle>Sign in</PageTitle>
+<main class="auth-page">
+    <section class="auth-card">
+        <h1>Sign in</h1>
 
-<h1>Sign in</h1>
-
-@* 1. Браузер запрашивает /login.
+        @* 1. Браузер запрашивает /login.
 2. Сервер выполняет Razor-компонент и формирует HTML с полями и кнопкой.
 3. Браузер получает HTML и отображает форму.
 Static SSR означает, что после загрузки страницы компонент не становится интерактивным: для него не устанавливается Blazor-соединение, через которое могли бы выполняться C#-обработчики действий пользователя.
 Но форма всё равно работает: при нажатии Sign in браузер отправляет обычный HTTP POST. Сервер снова выполняет компонент, получает данные формы и вызывает LoginAsync(). *@
 
-<EditForm Model="Input" method="post" FormName="login" OnValidSubmit="LoginAsync">
-    @* FormName - определяет форму, которую обрабатывает сервер. EditForm - автоматически добавляет antiforgery-защиту — теперь наш UseAntiforgery() пригодился. *@
-    <DataAnnotationsValidator />
-    <ValidationSummary />
+        <EditForm Model="Input" method="post" FormName="login" OnValidSubmit="LoginAsync" class="auth-form">
+            @* FormName - определяет форму, которую обрабатывает сервер. EditForm - автоматически добавляет antiforgery-защиту — теперь наш UseAntiforgery() пригодился. *@
+            <DataAnnotationsValidator />
+            <ValidationSummary />
 
-    <div>
-        <label for="username">Username</label>
-        <InputText id="username" autocomplete="username" @bind-Value="Input.UserName" /> @* autocomplete - Браузер или менеджер паролей может предложить сохранённый логин и автоматически заполнить поле. *@
-    </div>
 
-    <div>
-        <label for="password">Password</label>
-        <InputText id="password"
-                   type="password"
-                   autocomplete="current-password" @*Для пароля при входе используется current-passwor для автозаполнения*@
-                   @bind-Value="Input.Password" />
-    </div>
+            <div class="form-field">
+                <label for="username">Username</label>
+                <InputText id="username"
+                           autocomplete="username"
+                           @bind-Value="Input.UserName" />@* autocomplete - Браузер или менеджер паролей может предложить сохранённый логин и автоматически заполнить поле. *@
+            </div>
 
-    <button type="submit">Sign in</button>
-</EditForm>
 
-@if (_error is not null) {
-    <p role="alert">@_error</p>
-}
+            <div class="form-field">
+                <label for="password">Password</label>
+                <InputText id="password"
+                           type="password"
+                           autocomplete="current-password"@*Для пароля при входе используется current-passwor для автозаполнения*@
+                           @bind-Value="Input.Password" />
+            </div>
+
+            <button type="submit">Sign in</button>
+        </EditForm>
+
+        @if (_error is not null) {
+            <p role="alert">@_error</p>
+        }
+    </section>
+</main>
 
 @code {
     // Вход обрабатывается обычным HTTP POST:
@@ -55,7 +61,7 @@ Static SSR означает, что после загрузки страницы
     protected override void OnInitialized()
     {
         Input ??= new(); // equal: if (Input is null) Input = new LoginInput();
-        
+
     }
 
     private async Task LoginAsync()

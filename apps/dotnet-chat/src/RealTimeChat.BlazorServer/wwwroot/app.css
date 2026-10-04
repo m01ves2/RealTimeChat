@@ -37,9 +37,103 @@ h1:focus {
     text-align: start;
 }
 
+
 body {
     margin: 0;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     color: #243247;
     background: #f5f7fb;
+}
+
+.auth-page {
+    box-sizing: border-box;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 28px;
+    border: 1px solid #d8e0eb;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .auth-card h1 {
+        margin: 0 0 20px;
+        font-size: 1.8rem;
+    }
+
+.auth-form {
+    display: grid;
+    gap: 16px;
+}
+
+.form-field {
+    display: grid;
+    gap: 6px;
+}
+
+    .form-field label {
+        font-weight: 600;
+    }
+
+    .form-field input {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #c8d3e2;
+        border-radius: 7px;
+        background: #fff;
+        font: inherit;
+    }
+
+.auth-form button {
+    justify-self: start;
+    padding: 9px 20px;
+    border: 0;
+    border-radius: 7px;
+    background: #365fa0;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+}
+
+    .auth-form button:hover {
+        background: #2f548e;
+    }
+
+.auth-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+    .auth-actions a {
+        padding: 8px 14px;
+        border: 1px solid #c8d3e2;
+        border-radius: 7px;
+        background: #fff;
+        color: #285f9f;
+        text-decoration: none;
+    }
+
+        .auth-actions a:hover {
+            background: #eaf0f8;
+        }
+
+.auth-error {
+    margin: 16px 0 0;
+    color: #b42318;
+}
+
+.form-field input:focus-visible,
+.auth-form button:focus-visible,
+.auth-actions a:focus-visible {
+    outline: 2px solid #365fa0;
+    outline-offset: 2px;
 }

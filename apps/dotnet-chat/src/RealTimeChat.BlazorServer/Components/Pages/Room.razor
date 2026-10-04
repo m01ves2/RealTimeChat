@@ -21,6 +21,7 @@
 @inject ChatNotifier Notifier
 @inject RoomPresence Presence
 @inject TypingNotifier Typing
+@inject IJSRuntime JS
 
 @* отслеживаем соединение вкладки клиента *@
 @inject RoomCircuitHandler Connection
@@ -44,7 +45,7 @@
             <section class="room-conversation">
                 <h2 id="messages-title">Messages</h2>
 
-                <div class="message-scroll">
+                <div class="message-scroll" @ref="_messageScroll">
                     @if (_messages.Count == 0) {
                         <p>No messages yet.</p>
                     }
@@ -203,6 +204,10 @@
 
     private sealed record TypingState(int UserId, string UserName, int Sequence);
 
+    // message scrolling
+    private ElementReference _messageScroll;
+    private bool _scrollToLatest;
+
     private string TypingText
     {
         get
@@ -288,6 +293,7 @@
 
             _room = result.Room;
             MergeMessages(result.Messages);// Объединяем историю с сообщениями, пришедшими во время загрузки.
+            _scrollToLatest = true;
             _isLoading = false;
             await JoinPresenceAsync();
         }
@@ -295,6 +301,16 @@
             if (IsCurrentRoom(version))
                 Navigation.NavigateTo("/not-found", forceLoad: true);
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_scrollToLatest || _room is null)
+            return;
+
+        _scrollToLatest = false;
+
+        await JS.InvokeVoidAsync("scrollChatToBottom", _messageScroll);
     }
 
     public async ValueTask DisposeAsync()
@@ -504,25 +520,36 @@
         return Presence.JoinAsync(_participationId, _room.Id, _userId.Value, _userName);
     }
 
-    private Task OnMessageReceivedAsync(ChatMessageInfo message)
+    private async Task OnMessageReceivedAsync(ChatMessageInfo message)
     {
-        return InvokeAsync(() =>
+        if (_disposed || message.RoomId != RoomId)
+            return;
+
+// пользователь был внизу → пришло сообщение → после рендера скроллим вниз
+// пользователь читал старые сообщения выше → пришло сообщение → не трогаем его позицию
+        var wasAtBottom = await JS.InvokeAsync<bool>("isChatAtBottom", _messageScroll);
+
+        await InvokeAsync(() =>
         {
-            if (_disposed || message.RoomId != RoomId || _messages.Any(existing => existing.Id == message.Id)) {
+            if (_disposed
+                || message.RoomId != RoomId
+                || _messages.Any(existing => existing.Id == message.Id)
+                || _userId is null) {
                 return;
             }
 
-            // это условие может стать истинно, если - Компонент начал смену комнаты: сбросил _userId и отписался, но Notifier вызвал обработчик из ранее созданного снимка (он в цикле по одному их вызывает).
-            if (_userId is null) { // у компонента сейчас нет определённого пользователя — сообщение не обрабатываем
-                return;
-            }
+            var canSeeMessage =
+                message.RecipientId is null
+                || message.AuthorId == _userId
+                || message.RecipientId == _userId;
 
-            var canSeeMessage = message.RecipientId is null || message.AuthorId == _userId || message.RecipientId == _userId;
-            if (!canSeeMessage) { //если это приватное сообщение, но не моё и не для меня - пропустить!
+            if (!canSeeMessage)
                 return;
-            }
 
             MergeMessages(new[] { message });
+
+            _scrollToLatest = wasAtBottom;
+
             StateHasChanged();
         });
     }

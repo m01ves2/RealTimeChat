@@ -9,18 +9,26 @@
 @inject SignInManager<ApplicationUser> SignInManager
 @inject NavigationManager Navigation
 
-<PageTitle>Sign out</PageTitle>
+<main class="auth-page">
+    <section class="auth-card">
+        <h1>Sign out</h1>
 
-<h1>Sign out</h1>
+        <form method="post"
+              @formname="logout"
+              @onsubmit="LogoutAsync"
+              class="auth-form">
 
-<form method="post" @formname="logout" @onsubmit="LogoutAsync">
-    <AntiforgeryToken />
+            <AntiforgeryToken />
 
-    <p>Sign out of your account?</p>
+            <p>Sign out of your account?</p>
 
-    <button type="submit">Sign out</button>
-    <a href="/">Cancel</a>
-</form>
+            <div class="auth-actions">
+                <button type="submit">Sign out</button>
+                <a href="/">Cancel</a>
+            </div>
+        </form>
+    </section>
+</main>
 
 @code {
     // Эта страница остаётся static SSR, как и вход. Открытие /logout только показывает форму. 
