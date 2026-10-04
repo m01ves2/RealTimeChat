@@ -44,7 +44,7 @@ the Raw WebSocket prototype.
 
 ## SignalR Chat Application
 
-The complete chat application will be built on SignalR.
+The next complete chat application was built on SignalR.
 
 It will include chat rooms, nickname-based entry, PostgreSQL message
 history, online users, typing indicators, connection state handling,
@@ -113,13 +113,11 @@ the room and loads recent messages that it may have missed.
 The layout adapts to narrow screens. Message history scrolls independently
 and follows new messages only while the reader is near the bottom.
 
-## Learning materials
 
-- [Blazor Server: How it works (.NET 10)](~/docs/learning/BlazorServer-HowItWorks-NET10.pdf)
-  — manual for Blazor Server based on RealTimeChat: HTTP, SSR, circuit,
-  rendering, DI и cookie-auth.
-
-  Blazor_WASM_HowItWorks-NET10
-  - [Blazor Wasm: How it works (.NET 10)](~/docs/learning/BlazorWasm-HowItWorks-NET10.pdf)
-  — manual for Blazor Wasm based on RealTimeChat: runtime and AOT, components, HTTP API, 
-  cookie, HubConnection, группы, private messages and reconnect.
+## Blazor Server Chat
+The final version uses Blazor Server as the UI and application host. 
+The UI works directly with the application layer instead of calling an HTTP API, 
+while ASP.NET Core Identity provides cookie authentication and PostgreSQL stores users, rooms, and messages.
+Real-time communication between chat components is coordinated in-process through shared notification and presence services. 
+The application supports public and private messages, online users, typing indicators, 
+connection restoration, adaptive layout, and message scrolling without requiring a separate application SignalR Hub.
