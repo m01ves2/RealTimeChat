@@ -1,0 +1,666 @@
+﻿@page "/rooms/{RoomId:int}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false)) // здесь отключаем prerender страницы, чтобы упростить логику
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.DependencyInjection
+@using RealTimeChat.Application.Exceptions
+@using RealTimeChat.Application.Models
+@using RealTimeChat.Application.Services
+@using RealTimeChat.BlazorServer.Services
+
+@attribute [Authorize]
+
+@* Уход из комнаты включает асинхронное уведомление остальных участников.*@
+@implements IAsyncDisposable
+
+@inject IServiceScopeFactory ScopeFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@inject ChatNotifier Notifier
+@inject RoomPresence Presence
+@inject TypingNotifier Typing
+@inject IJSRuntime JS
+
+@* отслеживаем соединение вкладки клиента *@
+@inject RoomCircuitHandler Connection
+
+<PageTitle>@(_room?.Name ?? "Room")</PageTitle>
+
+<main class="chat-page room-page">
+
+    <header class="room-header">
+        <a class="back-to-rooms" href="/">← Rooms</a>
+    </header>
+
+    @if (_isLoading) {
+        <p>Loading room...</p>
+    }
+    else if (_room is not null) {
+        <h1>@_room.Name</h1>
+
+        <div class="room-layout">
+
+            <section class="room-conversation">
+                <h2 id="messages-title">Messages</h2>
+
+                <div class="message-scroll" @ref="_messageScroll">
+                    @if (_messages.Count == 0) {
+                        <p>No messages yet.</p>
+                    }
+                    else {
+                        <ul class="message-list">
+                            @foreach (var message in _messages) {
+                                <li @key="message.Id"
+                                    class="@(message.RecipientId is null
+                                                                            ? "message"
+                                                                            : "message message-private")">
+
+                                    <div class="message-meta">
+                                        <strong>
+                                            <button type="button"
+                                                    class="recipient-link"
+                                                    @onclick="() => SelectRecipient(message.AuthorId, message.AuthorName)">
+                                                @message.AuthorName
+                                            </button>
+                                        </strong>
+
+                                        @if (message.RecipientName is not null) {
+                                            <span class="private-recipient">
+                                                → @message.RecipientName · Private
+                                            </span>
+                                        }
+
+                                        <time datetime="@message.CreatedAt.ToString("O")">
+                                            @message.CreatedAt.ToLocalTime().ToString("HH:mm")
+                                        </time>
+                                    </div>
+
+                                    <p class="message-text">@message.Text</p>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </section>
+
+            <aside class="room-users">
+                <h2>Online users (@_onlineUsers.Count)</h2>
+
+                <ul>
+                    @foreach (var user in _onlineUsers) {
+                        <li @key="user.Id">
+                            @if (user.Id == _userId) {
+                                <span>@user.UserName (you)</span>
+                            }
+                            else {
+                                <button type="button"
+                                        class="recipient-link"
+                                        @onclick="() => SelectRecipient(user.Id, user.UserName)">
+                                    @user.UserName
+                                </button>
+                            }
+                        </li>
+                    }
+                </ul>
+            </aside>
+
+        </div>
+
+        <p class="typing-status" role="status">@TypingText</p>
+
+        @* Форма доступна и в комнате, где пока нет сообщений. *@
+        <form class="room-composer"
+              @onsubmit="SendAsync" 
+              @onsubmit:preventDefault>@* один обработчик события и отдельная настройка(модификатор поведения события - 
+                                          отменить стандартное действие браузера: обычную HTTP-отправку формы) того же события *@
+        
+            @* интерактивная форма: preventDefault отменяет обычную отправку HTML-формы, а Blazor вызывает SendAsync на сервере через соединение circuit.
+            @bind:event="oninput" обновляет _text при вводе каждого символа. *@
+
+            <label for="recipient-name">To</label>
+
+            <div class="recipient-row">
+                <input id="recipient-name"
+                       value="@SelectedRecipientName"
+                       readonly />
+
+                @if (_recipientId is not null) {
+                    <button type="button"
+                            class="recipient-reset"
+                            @onclick="SendToEveryone">
+                        Everyone
+                    </button>
+                }
+            </div>
+
+            <label for="message">Message</label>
+
+            @*браузер: input -> Blazor обновляет _text -> OnTextChangedAsync(). внутри OnTextChangedAsync() мы уже видим новое значение _text*@
+            <textarea id="message"
+                      rows="3"
+                      @bind="_text"
+                      @bind:event="oninput"
+                      @bind:after="OnTextChangedAsync"
+                      maxlength="@MaxMessageLength"
+                      disabled="@_isSending">
+
+            </textarea>
+
+            <button type="submit"
+                    disabled="@(_isSending || string.IsNullOrWhiteSpace(_text))">
+                @(_isSending ? "Sending..." : "Send")
+            </button>
+
+            @if (_sendError is not null) {
+                <p role="alert">@_sendError</p>
+            }
+        </form>
+    }
+
+</main>
+
+
+@code {
+
+    [Parameter]
+    public int RoomId { get; set; }
+
+    private const int MaxMessageLength = 500;
+    private readonly Guid _participationId = Guid.NewGuid();
+
+    // Данные текущей комнаты и пользователя.
+    private RoomInfo? _room;
+    private IReadOnlyList<ChatMessageInfo> _messages = [];
+    private IReadOnlyList<OnlineUser> _onlineUsers = [];
+    private int? _userId;
+    private string? _userName;
+
+    // Получатель сообщений
+    private int? _recipientId;
+    private string? _recipientName;
+    //private string SelectedRecipientName => _recipientId is null ? "Everyone" : _onlineUsers.FirstOrDefault(user => user.Id == _recipientId)?.UserName ?? "Selected recipient (offline)";
+    private string SelectedRecipientName => _recipientName ?? "Everyone";
+
+    // Состояние загрузки и формы отправки.
+    private bool _isLoading = true;
+    private bool _isSending; // Защита от повторной отправки, пока предыдущая ещё выполняется.
+    private string _text = string.Empty;
+    private string? _sendError;
+
+    // Версия меняется при новой загрузке и при уничтожении компонента.
+    private int _loadVersion;   // актуальность операции. 
+                                // отвечает на вопрос: Этот результат всё ещё относится к текущей загрузке?
+                                // Это не отменяет запрос к БД. Оно запрещает применять устаревший результат.
+        
+    private bool _disposed; // завершение жизни компонента.
+                            //отвечает на вопрос: Этот компонент уже уничтожается и должен прекратить обновления? компонент больше не должен принимать результаты
+
+    // уведомления о typing...
+    private DateTimeOffset _lastTypingNotificationAt = DateTimeOffset.MinValue;
+    private readonly Dictionary<Guid, TypingState> _typingParticipations = [];
+    private int _typingSequence;
+
+    private sealed record TypingState(int UserId, string UserName, int Sequence);
+
+    // message scrolling
+    private ElementReference _messageScroll;
+    private bool _scrollToLatest;
+
+    private string TypingText
+    {
+        get
+        {
+            var users = _typingParticipations.Values
+                            .DistinctBy(typing => typing.UserId)
+                            .OrderBy(typing => typing.UserName, StringComparer.OrdinalIgnoreCase)
+                            .Select(typing => typing.UserName)
+                            .ToArray();
+
+            return users.Length switch
+            {
+                0 => string.Empty,
+                1 => $"{users[0]} is typing...",
+                2 => $"{users[0]} and {users[1]} are typing...",
+                _ => $"{users[0]}, {users[1]} and {users.Length - 2} others are typing..."
+            };
+        }
+    }
+
+    // --- Жизненный цикл страницы ---
+
+    protected override void OnInitialized()
+    {
+        Presence.UsersChanged += OnUsersChangedAsync;
+        Connection.ConnectionChanged += OnConnectionChangedAsync;
+        Typing.TypingChanged += OnTypingChangedAsync;
+    }
+
+    private void SubscribeToMessages()
+    {
+        if (_disposed  || _userId is null)
+            return;
+
+        Notifier.Subscribe(_participationId, _userId.Value, OnMessageReceivedAsync); //Используем существующий _participationId: он уникален для экземпляра компонента. 
+                                                                                     //Даже если один пользователь откроет две вкладки, каждая получит собственную подписку.
+    }
+
+    // - сбросить состояние
+    // - снять прежнее участие
+    // - определить пользователя
+    // - подписаться на сообщения
+    // - загрузить комнату и историю
+    // - зарегистрировать присутствие
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_disposed)
+            return;
+
+        var version = ++_loadVersion;
+        var roomId = RoomId;
+        ResetRoomState(); //При переходе в другую комнату черновик и ошибка сбросятся.
+
+        await Typing.StopTypingAsync(_participationId); //перед уходом из старой комнаты прекращаем typing notify
+
+        // Если этот экземпляр компонента уже участвовал в комнате,
+        // снимаем прежнее участие перед загрузкой новой.
+        await Presence.LeaveAsync(_participationId);
+
+        if (!IsCurrentRoom(version))
+            return;
+
+        var user = await GetCurrentUserAsync();
+
+        if (!IsCurrentRoom(version))
+            return;
+
+        if (user is null) {
+            Navigation.NavigateTo("/login", forceLoad: true);
+            return;
+        }
+
+        _userId = user.Id;// сохраним пользователя
+        _userName = user.UserName;
+
+        SubscribeToMessages(); // подписываемся на сообщения
+
+        try {
+            var result = await LoadRoomAsync(roomId, user.Id);
+
+            if (!IsCurrentRoom(version))
+                return;
+
+            _room = result.Room;
+            MergeMessages(result.Messages);// Объединяем историю с сообщениями, пришедшими во время загрузки.
+            _scrollToLatest = true;
+            _isLoading = false;
+            await JoinPresenceAsync();
+        }
+        catch (NotFoundException) {
+            if (IsCurrentRoom(version))
+                Navigation.NavigateTo("/not-found", forceLoad: true);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_scrollToLatest || _room is null)
+            return;
+
+        _scrollToLatest = false;
+
+        await JS.InvokeVoidAsync("scrollChatToBottom", _messageScroll);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        ++_loadVersion;
+
+        Presence.UsersChanged -= OnUsersChangedAsync;
+        
+        Connection.ConnectionChanged -= OnConnectionChangedAsync;
+        
+        Notifier.Unsubscribe(_participationId);
+
+        Typing.TypingChanged -= OnTypingChangedAsync;
+
+        await Typing.StopTypingAsync(_participationId); // При уничтожении компонента прекращаем оповещение typing...
+
+        await Presence.LeaveAsync(_participationId);
+    }
+
+    // --- Отправка: проверить → сохранить → уведомить ---
+
+    private async Task SendAsync()
+    {
+        if (_disposed || _isSending || _isLoading || _room is null)
+            return;
+
+        var text = _text.Trim();
+        if (!ValidateMessageText(text))
+            return;
+
+        // Запоминаем комнату и версию загрузки до первого await.
+        var roomId = RoomId;
+        var version = _loadVersion;
+        var recipientId = _recipientId;
+
+        _isSending = true;
+
+        try {
+            var user = await GetCurrentUserAsync();
+
+            if (!IsCurrentRoom(version))
+                return;
+
+            if (user is null) {
+                Navigation.NavigateTo("/login", forceLoad: true);
+                return;
+            }
+
+            var message = await SaveMessageAsync(roomId, user.Id, text, recipientId);
+
+            // После сохранения доставляем сообщение даже при уходе отправителя.
+            // Работа с БД завершена, scope уже освобождён.
+            // Рассылаем сообщение даже при уходе отправителя в другую комнату.
+            await Notifier.PublishMessageAsync(message);
+
+            // после успешного сохранения/рассылки сообщения, можно остановить typing
+            await Typing.StopTypingAsync(_participationId);
+
+            if (IsCurrentRoom(version)) {
+                _text = string.Empty;
+                _lastTypingNotificationAt = DateTimeOffset.MinValue;
+            }
+        }
+        catch (ArgumentException ex) {
+            if (IsCurrentRoom(version))
+                _sendError = ex.Message;
+        }
+        catch (NotFoundException) {
+            if (IsCurrentRoom(version))
+                _sendError = "The room or user no longer exists.";
+        }
+        finally {
+            _isSending = false;
+        }
+    }
+
+    private bool ValidateMessageText(string text)
+    {
+        _sendError = null;
+
+        if (text.Length == 0)
+            return false;
+
+        if (text.Length <= MaxMessageLength)
+            return true;
+
+        _sendError = $"Message cannot exceed {MaxMessageLength} characters.";
+        return false;
+    }
+
+    private void SelectRecipient(int userId, string userName)
+    {
+        if (_userId == userId)
+            return;
+
+        _recipientId = userId;
+        _recipientName = userName;
+    }
+
+    private void SendToEveryone()
+    {
+        _recipientId = null;
+        _recipientName = null;
+    }
+
+    // --- Получение пользователя и операции с БД ---
+
+    private async Task<UserInfo?> GetCurrentUserAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync(); // AuthenticationStateProvider даёт пользователя текущего UI-сеанса.
+                                                                                     // Из его claim берём ID для фильтрации приватной истории.
+        var principal = state.User;
+        var idText = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (principal.Identity?.IsAuthenticated != true  || !int.TryParse(idText, out var id)) {
+            return null;
+        }
+
+        return new UserInfo(id, principal.Identity.Name ?? id.ToString());
+    }
+
+    private async Task<(RoomInfo Room, IReadOnlyList<ChatMessageInfo> Messages)>  LoadRoomAsync(int roomId, int userId)
+    {
+        // Эти строки создают отдельную область зависимостей
+        // Внутри неё DI создаёт ChatService, его репозитории и DbContext.
+        // При выходе из блока они освобождаются. Полученные RoomInfo и ChatMessageInfo остаются обычными данными, которые можно отображать.
+
+        // Scope ограничивает жизнь ChatService, репозиториев и DbContext.
+        await using var scope = ScopeFactory.CreateAsyncScope();// Scope — это область жизни объектов, которые создаёт DI-контейнер.
+
+        // В интерактивном Blazor Server стандартный scope живёт вместе с circuit — UI - сеансом вкладки.
+        // Клик по кнопке не создаёт новый HTTP-запрос страницы и новую область зависимостей.
+
+        // Получить ChatService именно из этой новой области.
+        var chat = scope.ServiceProvider.GetRequiredService<ChatService>();
+
+        var room = await chat.GetRoomAsync(roomId, CancellationToken.None);
+        var messages = await chat.GetRecentMessagesAsync(roomId, userId, CancellationToken.None);
+
+        // К моменту возврата данных scope будет освобождён.
+        return (room, messages);
+    }
+
+    private async Task<ChatMessageInfo> SaveMessageAsync(int roomId, int userId, string text, int? recipientId)
+    {
+        // Отдельный scope на всю операцию отправки.
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        var chat = scope.ServiceProvider.GetRequiredService<ChatService>();
+
+        // SendMessageAsync пока не проверяет существование комнаты.
+        await chat.GetRoomAsync(roomId, CancellationToken.None);
+
+        return await chat.SendMessageAsync(
+            roomId, userId, text,
+            recipientId,
+            cancellationToken: CancellationToken.None);
+    }
+
+    // --- Изменение состояния страницы ---
+
+    private void ResetRoomState()
+    {
+        _isLoading = true;
+        _room = null;
+        _messages = [];
+        _onlineUsers = [];
+        _text = string.Empty;
+        _sendError = null;
+        _userId = null;
+        _userName = null;
+        _recipientId = null;
+        _recipientName = null;
+        Notifier.Unsubscribe(_participationId);
+        _typingParticipations.Clear();
+    }
+
+    private bool IsCurrentRoom(int version)
+    {
+        //_loadVersion защищает от устаревшей загрузки: если параметры комнаты поменялись, пока мы ждали БД, старый результат не перезапишет новую страницу.
+        return !_disposed && version == _loadVersion;
+    }
+
+    private void MergeMessages(IEnumerable<ChatMessageInfo> messages)
+    {
+        // Один алгоритм для истории и для сообщений от notifier.
+        _messages = _messages.Concat(messages)
+            .DistinctBy(message => message.Id)
+            .OrderBy(message => message.CreatedAt)
+            .ThenBy(message => message.Id)
+            .ToArray();
+    }
+
+    // --- Участие в комнате и внешние уведомления ---
+
+    private Task JoinPresenceAsync()
+    {
+        if (_disposed
+            || !Connection.IsConnected // нужна, например, если загрузка комнаты завершилась уже после отключения: такое завершение не должно вернуть пользователя в онлайн.
+            || _isLoading
+            || _room is null
+            || _userId is null
+            || _userName is null) {
+            return Task.CompletedTask;
+        }
+
+        return Presence.JoinAsync(_participationId, _room.Id, _userId.Value, _userName);
+    }
+
+    private async Task OnMessageReceivedAsync(ChatMessageInfo message)
+    {
+        if (_disposed || message.RoomId != RoomId)
+            return;
+
+// пользователь был внизу → пришло сообщение → после рендера скроллим вниз
+// пользователь читал старые сообщения выше → пришло сообщение → не трогаем его позицию
+        var wasAtBottom = await JS.InvokeAsync<bool>("isChatAtBottom", _messageScroll);
+
+        await InvokeAsync(() =>
+        {
+            if (_disposed
+                || message.RoomId != RoomId
+                || _messages.Any(existing => existing.Id == message.Id)
+                || _userId is null) {
+                return;
+            }
+
+            var canSeeMessage =
+                message.RecipientId is null
+                || message.AuthorId == _userId
+                || message.RecipientId == _userId;
+
+            if (!canSeeMessage)
+                return;
+
+            MergeMessages(new[] { message });
+
+            _scrollToLatest = wasAtBottom;
+
+            StateHasChanged();
+        });
+    }
+
+    private Task OnUsersChangedAsync(int roomId)
+    {
+        return InvokeAsync(() =>
+        {
+            if (_disposed || roomId != RoomId)
+                return;
+
+            // Читаем актуальный список, а не старый снимок из уведомления.
+            _onlineUsers = Presence.GetUsers(roomId);
+            StateHasChanged();
+        });
+    }
+
+    private Task OnConnectionChangedAsync(bool connected)
+    {
+        return InvokeAsync(async () =>
+        {
+            if (_disposed)
+                return;
+
+            // При отключении удаляем участие. При восстановлении добавляем его обратно — если комната уже загружена.
+            if (connected){
+                await JoinPresenceAsync();
+            }
+            else{
+                await Typing.StopTypingAsync(_participationId); //при потере соединения прекращаем typing notify
+
+                await Presence.LeaveAsync(_participationId);
+            }
+        });
+    }
+
+    private async Task OnTextChangedAsync()
+    {
+        if (_disposed || _isLoading || _room is null || _userId is null || _userName is null) {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_text)) {
+            _lastTypingNotificationAt = DateTimeOffset.MinValue; // на случай, если: печатает → очистил → тут же снова начал печатать
+            await Typing.StopTypingAsync(_participationId);
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (now - _lastTypingNotificationAt < TimeSpan.FromSeconds(1))
+            return;
+
+        _lastTypingNotificationAt = now;
+
+        await Typing.StartTypingAsync(_participationId, _room.Id, _userId.Value, _userName);
+    }
+
+    private async Task OnTypingChangedAsync(TypingChange change)
+    {
+        var sequence = 0;
+
+        await InvokeAsync(() =>
+        {
+            if (_disposed || _isLoading || change.RoomId != RoomId || _userId is null 
+                || change.UserId == _userId) { //Собственный typing мы вообще не храним.
+                return;
+            }
+
+            if (!change.IsTyping) {
+                if (_typingParticipations.Remove(change.ParticipationId))
+                    StateHasChanged();
+
+                return;
+            }
+
+            sequence = ++_typingSequence;
+
+            _typingParticipations[change.ParticipationId] = new TypingState(change.UserId, change.UserName, sequence);
+
+            StateHasChanged();
+        });
+
+        if (sequence != 0) {
+            _ = HideTypingAfterDelayAsync(change.ParticipationId, change.RoomId, sequence);
+        }
+    }
+
+    private async Task HideTypingAfterDelayAsync(Guid participationId, int roomId, int sequence)
+    {
+        try {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            await InvokeAsync(() =>
+            {
+                if (_disposed || roomId != RoomId)
+                    return;
+
+                if (!_typingParticipations.TryGetValue(participationId, out var typing)) {
+                    return;
+                }
+
+                if (typing.Sequence != sequence)
+                    return;
+
+                _typingParticipations.Remove(participationId);
+                StateHasChanged();
+            });
+        }
+        catch {
+            // Component/circuit may already be gone.
+        }
+    }
+}
