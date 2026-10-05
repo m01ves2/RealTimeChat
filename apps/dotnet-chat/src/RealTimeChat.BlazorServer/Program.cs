@@ -1,8 +1,9 @@
-using RealTimeChat.BlazorServer.Components;
-using RealTimeChat.Application;
-using RealTimeChat.Infrastructure;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using RealTimeChat.Application;
 using RealTimeChat.BlazorServer;
+using RealTimeChat.BlazorServer.Components;
+using RealTimeChat.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +14,28 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(connectionString);
 builder.Services.AddServer();
+
+// Data protection.
+// Для нашего проекта сейчас гораздо важнее другое: чтобы ключи имели постоянное место хранения, которое не исчезнет при новой публикации приложения.
+//иначе сценарий будет: 
+//пользователь login
+//        ↓
+//cookie зашифрована Data Protection key A
+//        ↓
+//redeploy / новый key ring
+//        ↓
+//приложение уже не знает key A
+//        ↓
+//старая cookie не расшифровывается
+//        ↓
+//пользователя выбрасывает из аккаунта
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
+
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath)) {
+    builder.Services
+        .AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
 
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddIdentityCookies();
