@@ -1,0 +1,94 @@
+﻿@page "/register"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using RealTimeChat.Infrastructure.Identity
+
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+
+<main class="auth-page">
+    <section class="auth-card">
+        <h1>Create account</h1>
+
+        <EditForm Model="Input"
+                  method="post"
+                  FormName="register"
+                  OnValidSubmit="RegisterAsync"
+                  class="auth-form">
+
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            <div class="form-field">
+                <label for="username">Username</label>
+                <InputText id="username"
+                           autocomplete="username"
+                           @bind-Value="Input.UserName" />
+            </div>
+
+            <div class="form-field">
+                <label for="password">Password</label>
+                <InputText id="password"
+                           type="password"
+                           autocomplete="new-password"
+                           @bind-Value="Input.Password" />
+            </div>
+
+            <button type="submit">Create account</button>
+        </EditForm>
+
+        @if (_errors.Count > 0) {
+            <ul class="auth-error">
+                @foreach (var error in _errors) {
+                    <li>@error</li>
+                }
+            </ul>
+        }
+
+        <p>
+            Already have an account?
+            <a href="/login">Sign in</a>
+        </p>
+    </section>
+</main>
+
+@code {
+    [SupplyParameterFromForm]
+    private RegisterInput Input { get; set; } = default!;
+
+    private IReadOnlyList<string> _errors = [];
+
+    protected override void OnInitialized()
+    {
+        Input ??= new();
+    }
+
+    private async Task RegisterAsync()
+    {
+        _errors = [];
+
+        var user = new ApplicationUser
+        {
+            UserName = Input.UserName.Trim()
+        };
+
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (!result.Succeeded) {
+            _errors = result.Errors.Select(error => error.Description).ToArray();
+
+            return;
+        }
+
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    public sealed class RegisterInput
+    {
+        [Required]
+        public string UserName { get; set; } = string.Empty;
+
+        [Required]
+        public string Password { get; set; } = string.Empty;
+    }
+}

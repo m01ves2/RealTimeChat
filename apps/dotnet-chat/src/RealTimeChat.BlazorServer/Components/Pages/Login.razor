@@ -40,6 +40,11 @@ Static SSR означает, что после загрузки страницы
             <button type="submit">Sign in</button>
         </EditForm>
 
+        <p>
+            Don't have an account?
+            <a href="/register">Create account</a>
+        </p>
+
         @if (_error is not null) {
             <p role="alert">@_error</p>
         }
